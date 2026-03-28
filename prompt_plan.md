@@ -4,7 +4,7 @@
 - [x] **Módulo 2**: Schema e migrations Supabase
 - [x] **Módulo 3**: Integração Pluggy
 - [x] **Módulo 4**: Dashboard principal (/dashboard)
-- [ ] **Módulo 5**: Tela de Contas (/contas)
+- [x] **Módulo 5**: Tela de Contas (/contas)
 - [ ] **Módulo 6**: Tela de Cartões (/cartoes)
 - [ ] **Módulo 7**: Tela de Crédito (/credito)
 - [ ] **Módulo 8**: Tela de Investimentos (/investimentos)
