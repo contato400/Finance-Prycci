@@ -6,7 +6,7 @@
 - [x] **Módulo 4**: Dashboard principal (/dashboard)
 - [x] **Módulo 5**: Tela de Contas (/contas)
 - [x] **Módulo 6**: Tela de Cartões (/cartoes)
-- [ ] **Módulo 7**: Tela de Crédito (/credito)
+- [x] **Módulo 7**: Tela de Crédito (/credito)
 - [ ] **Módulo 8**: Tela de Investimentos (/investimentos)
 - [ ] **Módulo 9**: Tela de Insights (/insights) — IA com Claude API
 - [ ] **Módulo 10**: Responsividade e polish final
