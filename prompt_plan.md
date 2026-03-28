@@ -1,7 +1,7 @@
 # FinanceOS - Plano de Implementação
 
 - [x] **Módulo 1**: Setup base (Next.js 14, TypeScript, Tailwind, Shadcn/ui, Supabase client, next-auth, Layout)
-- [ ] **Módulo 2**: Schema e migrations Supabase
+- [x] **Módulo 2**: Schema e migrations Supabase
 - [ ] **Módulo 3**: Integração Pluggy
 - [ ] **Módulo 4**: Dashboard principal (/dashboard)
 - [ ] **Módulo 5**: Tela de Contas (/contas)

@@ -1,0 +1,2 @@
+-- FinanceOS — Seed file
+-- Adicione dados de exemplo aqui se necessário
