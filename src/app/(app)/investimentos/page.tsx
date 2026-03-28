@@ -165,10 +165,10 @@ export default function InvestimentosPage() {
                 <thead>
                   <tr className="border-b border-slate-800 text-left text-xs text-slate-500">
                     <th className="pb-3 font-medium">Nome</th>
-                    <th className="pb-3 font-medium">Tipo</th>
-                    <th className="pb-3 font-medium">Instituição</th>
-                    <th className="pb-3 text-right font-medium">Qtd</th>
-                    <th className="pb-3 text-right font-medium">Valor Unit.</th>
+                    <th className="hidden pb-3 font-medium sm:table-cell">Tipo</th>
+                    <th className="hidden pb-3 font-medium md:table-cell">Instituição</th>
+                    <th className="hidden pb-3 text-right font-medium sm:table-cell">Qtd</th>
+                    <th className="hidden pb-3 text-right font-medium md:table-cell">Valor Unit.</th>
                     <th className="pb-3 text-right font-medium">Valor Atual</th>
                   </tr>
                 </thead>
@@ -178,21 +178,21 @@ export default function InvestimentosPage() {
                       key={asset.id}
                       className="border-b border-slate-800/50 transition-colors hover:bg-slate-800/30"
                     >
-                      <td className="max-w-[200px] truncate py-3 font-medium text-white">
+                      <td className="max-w-[180px] truncate py-3 font-medium text-white sm:max-w-[250px]">
                         {asset.name}
                       </td>
-                      <td className="py-3">
+                      <td className="hidden py-3 sm:table-cell">
                         <span className="rounded-full bg-blue-500/10 px-2 py-0.5 text-xs text-blue-400">
                           {asset.type}
                         </span>
                       </td>
-                      <td className="py-3 text-slate-400">{asset.institution}</td>
-                      <td className="py-3 text-right text-slate-300">
+                      <td className="hidden py-3 text-slate-400 md:table-cell">{asset.institution}</td>
+                      <td className="hidden py-3 text-right text-slate-300 sm:table-cell">
                         {asset.quantity > 0
                           ? asset.quantity.toLocaleString("pt-BR", { maximumFractionDigits: 6 })
                           : "—"}
                       </td>
-                      <td className="py-3 text-right text-slate-300">
+                      <td className="hidden py-3 text-right text-slate-300 md:table-cell">
                         {asset.value > 0 ? formatCurrency(asset.value) : "—"}
                       </td>
                       <td className="py-3 text-right font-medium text-emerald-400">

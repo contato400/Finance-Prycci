@@ -245,14 +245,14 @@ export default function CreditoPage() {
       {/* Empréstimos e financiamentos */}
       <Card className="border-slate-800 bg-slate-900">
         <CardHeader>
-          <div className="flex items-center justify-between">
+          <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
             <CardTitle className="flex items-center gap-2 text-white">
               <Receipt className="h-5 w-5" />
               Empréstimos e Financiamentos
             </CardTitle>
             {data?.totalLoanDebt ? (
-              <span className="text-sm text-red-400">
-                Saldo devedor total: {formatCurrency(data.totalLoanDebt)}
+              <span className="text-xs text-red-400 sm:text-sm">
+                Saldo devedor: {formatCurrency(data.totalLoanDebt)}
               </span>
             ) : null}
           </div>
@@ -264,10 +264,10 @@ export default function CreditoPage() {
                 <thead>
                   <tr className="border-b border-slate-800 text-left text-xs text-slate-500">
                     <th className="pb-3 font-medium">Instituição</th>
-                    <th className="pb-3 font-medium">Produto</th>
-                    <th className="pb-3 text-right font-medium">Valor Total</th>
+                    <th className="hidden pb-3 font-medium sm:table-cell">Produto</th>
+                    <th className="hidden pb-3 text-right font-medium md:table-cell">Valor Total</th>
                     <th className="pb-3 text-right font-medium">Parcelas</th>
-                    <th className="pb-3 text-right font-medium">Valor Parcela</th>
+                    <th className="hidden pb-3 text-right font-medium sm:table-cell">Parcela</th>
                     <th className="pb-3 text-right font-medium">Saldo Devedor</th>
                   </tr>
                 </thead>
@@ -275,8 +275,8 @@ export default function CreditoPage() {
                   {data.loans.map((loan) => (
                     <tr key={loan.id} className="border-b border-slate-800/50">
                       <td className="py-3 font-medium text-white">{loan.institution_name}</td>
-                      <td className="py-3 text-slate-300">{loan.name}</td>
-                      <td className="py-3 text-right text-slate-300">
+                      <td className="hidden py-3 text-slate-300 sm:table-cell">{loan.name}</td>
+                      <td className="hidden py-3 text-right text-slate-300 md:table-cell">
                         {formatCurrency(loan.total_amount)}
                       </td>
                       <td className="py-3 text-right">
@@ -284,7 +284,7 @@ export default function CreditoPage() {
                         <span className="text-slate-600"> / </span>
                         <span className="text-slate-300">{loan.total_installments}</span>
                       </td>
-                      <td className="py-3 text-right text-slate-300">
+                      <td className="hidden py-3 text-right text-slate-300 sm:table-cell">
                         {formatCurrency(loan.installment_amount)}
                       </td>
                       <td className="py-3 text-right text-red-400">
@@ -312,7 +312,7 @@ export default function CreditoPage() {
           </CardTitle>
         </CardHeader>
         <CardContent>
-          <div className="flex flex-col items-center gap-6 sm:flex-row sm:items-end">
+          <div className="flex flex-col items-center gap-6 md:flex-row md:items-end">
             {/* Score visual */}
             <div className="flex flex-col items-center">
               <ScoreGauge score={data?.score?.score || null} />
@@ -337,7 +337,7 @@ export default function CreditoPage() {
                   value={scoreInput}
                   onChange={(e) => setScoreInput(e.target.value)}
                   placeholder="Ex: 750"
-                  className="w-32 rounded-md border border-slate-700 bg-slate-800 px-3 py-2 text-sm text-white placeholder:text-slate-500 focus:border-emerald-500 focus:outline-none focus:ring-1 focus:ring-emerald-500"
+                  className="w-24 rounded-md border border-slate-700 bg-slate-800 px-3 py-2 text-sm text-white placeholder:text-slate-500 focus:border-emerald-500 focus:outline-none focus:ring-1 focus:ring-emerald-500 sm:w-32"
                 />
                 <Button
                   onClick={handleSaveScore}

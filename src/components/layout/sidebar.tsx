@@ -36,8 +36,9 @@ export function Sidebar() {
       <Button
         variant="ghost"
         size="icon"
-        className="fixed top-4 left-4 z-50 lg:hidden"
+        className="fixed left-3 top-3.5 z-50 lg:hidden"
         onClick={() => setMobileOpen(!mobileOpen)}
+        aria-label={mobileOpen ? "Fechar menu" : "Abrir menu"}
       >
         {mobileOpen ? <X className="h-5 w-5" /> : <Menu className="h-5 w-5" />}
       </Button>
@@ -45,7 +46,7 @@ export function Sidebar() {
       {/* Overlay mobile */}
       {mobileOpen && (
         <div
-          className="fixed inset-0 z-40 bg-black/50 lg:hidden"
+          className="fixed inset-0 z-40 bg-black/60 backdrop-blur-sm lg:hidden"
           onClick={() => setMobileOpen(false)}
         />
       )}
@@ -53,7 +54,7 @@ export function Sidebar() {
       {/* Sidebar */}
       <aside
         className={cn(
-          "fixed top-0 left-0 z-40 h-screen w-64 border-r border-slate-800 bg-slate-950 transition-transform lg:translate-x-0",
+          "fixed left-0 top-0 z-40 h-screen w-64 border-r border-slate-800 bg-slate-950 transition-transform duration-200 lg:translate-x-0",
           mobileOpen ? "translate-x-0" : "-translate-x-full"
         )}
       >

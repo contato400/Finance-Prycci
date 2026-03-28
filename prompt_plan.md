@@ -9,4 +9,4 @@
 - [x] **Módulo 7**: Tela de Crédito (/credito)
 - [x] **Módulo 8**: Tela de Investimentos (/investimentos)
 - [ ] **Módulo 9**: Tela de Insights (/insights) — IA com Claude API
-- [ ] **Módulo 10**: Responsividade e polish final
+- [x] **Módulo 10**: Responsividade e polish final

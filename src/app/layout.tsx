@@ -1,4 +1,4 @@
-import type { Metadata } from "next";
+import type { Metadata, Viewport } from "next";
 import "./globals.css";
 import { AuthSessionProvider } from "@/components/providers/session-provider";
 import { Toaster } from "@/components/ui/toaster";
@@ -6,6 +6,13 @@ import { Toaster } from "@/components/ui/toaster";
 export const metadata: Metadata = {
   title: "FinanceOS — Organização Financeira Pessoal",
   description: "App de organização financeira pessoal com integração bancária e insights de IA",
+  icons: { icon: "/favicon.ico" },
+};
+
+export const viewport: Viewport = {
+  width: "device-width",
+  initialScale: 1,
+  themeColor: "#020617",
 };
 
 export default function RootLayout({

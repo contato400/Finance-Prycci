@@ -17,18 +17,25 @@ export function Header() {
       const res = await fetch("/api/pluggy/sync", { method: "POST" });
       if (!res.ok) throw new Error("Erro ao sincronizar");
       setLastSync(new Date().toLocaleString("pt-BR"));
-      toast({ title: "Sincronização concluída", variant: "success" as "default" });
+      toast({
+        title: "Sincronização concluída",
+        description: "Todos os dados foram atualizados.",
+      });
     } catch {
-      toast({ title: "Erro na sincronização", variant: "destructive" });
+      toast({
+        title: "Erro na sincronização",
+        description: "Verifique sua conexão e tente novamente.",
+        variant: "destructive",
+      });
     } finally {
       setSyncing(false);
     }
   }
 
   return (
-    <header className="sticky top-0 z-30 flex h-16 items-center justify-between border-b border-slate-800 bg-slate-950/80 px-6 backdrop-blur-sm lg:pl-72">
-      <div className="flex items-center gap-4 pl-10 lg:pl-0">
-        <h2 className="text-lg font-semibold text-white">
+    <header className="sticky top-0 z-30 flex h-16 items-center justify-between border-b border-slate-800 bg-slate-950/80 px-4 backdrop-blur-sm sm:px-6 lg:pl-72">
+      <div className="flex min-w-0 items-center gap-3 pl-12 lg:pl-0">
+        <h2 className="truncate text-base font-semibold text-white sm:text-lg">
           Olá, {session?.user?.name ?? "Usuário"}
         </h2>
         {lastSync && (
@@ -38,13 +45,13 @@ export function Header() {
         )}
       </div>
 
-      <div className="flex items-center gap-2">
+      <div className="flex shrink-0 items-center gap-2">
         <Button
           variant="outline"
           size="sm"
           onClick={handleSync}
           disabled={syncing}
-          className="gap-2 border-slate-700 text-slate-300 hover:text-white"
+          className="gap-2 border-slate-700 text-slate-300 hover:text-white disabled:opacity-50"
         >
           <RefreshCw className={`h-4 w-4 ${syncing ? "animate-spin" : ""}`} />
           <span className="hidden sm:inline">Sincronizar</span>

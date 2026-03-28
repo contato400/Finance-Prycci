@@ -197,7 +197,7 @@ export default function ContasPage() {
                       <tr className="border-b border-slate-800 text-left text-xs text-slate-500">
                         <th className="pb-3 font-medium">Data</th>
                         <th className="pb-3 font-medium">Descrição</th>
-                        <th className="pb-3 font-medium">Categoria</th>
+                        <th className="hidden pb-3 font-medium sm:table-cell">Categoria</th>
                         <th className="pb-3 text-right font-medium">Valor</th>
                       </tr>
                     </thead>
@@ -222,7 +222,7 @@ export default function ContasPage() {
                               </span>
                             </div>
                           </td>
-                          <td className="py-3">
+                          <td className="hidden py-3 sm:table-cell">
                             <span className="rounded-full bg-slate-800 px-2 py-0.5 text-xs text-slate-400">
                               {tx.category || "—"}
                             </span>
