@@ -1,11 +1,14 @@
 import { NextResponse } from "next/server";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
-import { createPluggyClient } from "@/lib/pluggy/client";
+import { createPluggyClient, fetchAllItems } from "@/lib/pluggy/client";
 import { createSupabaseServer } from "@/lib/supabase/server";
 import type { Account as PluggyAccount, Transaction as PluggyTransaction } from "pluggy-sdk";
 
 // Sincroniza todos os dados do Pluggy com o Supabase
+// 1. Busca todos os items na API Pluggy (GET /items)
+// 2. Salva cada item no Supabase (upsert)
+// 3. Sincroniza contas, transações, cartões, investimentos e empréstimos
 export async function POST() {
   try {
     const session = await getServerSession(authOptions);
@@ -16,19 +19,43 @@ export async function POST() {
     const pluggy = createPluggyClient();
     const supabase = createSupabaseServer();
 
-    // Buscar todos os items salvos no banco
-    const { data: savedItems } = await supabase
-      .from("pluggy_items")
-      .select("*");
+    // 1. Buscar TODOS os items existentes na API Pluggy
+    const pluggyItems = await fetchAllItems();
 
-    if (!savedItems || savedItems.length === 0) {
+    if (pluggyItems.length === 0) {
       return NextResponse.json({
-        message: "Nenhuma conexão encontrada. Adicione um banco primeiro.",
+        message: "Nenhum item encontrado na Pluggy. Adicione um banco primeiro.",
         synced: false,
+        itemsFound: 0,
       });
     }
 
+    // 2. Salvar cada item no Supabase (upsert pelo item_id)
+    const dbItems: Array<{ id: string; item_id: string; institution_name: string }> = [];
+
+    for (const pluggyItem of pluggyItems) {
+      const { data: upserted } = await supabase
+        .from("pluggy_items")
+        .upsert(
+          {
+            item_id: pluggyItem.id,
+            institution_name: pluggyItem.connector.name,
+            status: pluggyItem.status,
+          },
+          { onConflict: "item_id" }
+        )
+        .select("id, item_id, institution_name")
+        .single();
+
+      if (upserted) {
+        dbItems.push(upserted);
+      }
+    }
+
+    // 3. Sincronizar dados de cada item
     const results = {
+      itemsFound: pluggyItems.length,
+      itemsSynced: 0,
       accounts: 0,
       transactions: 0,
       creditCards: 0,
@@ -36,41 +63,36 @@ export async function POST() {
       loans: 0,
     };
 
-    for (const savedItem of savedItems) {
+    for (const dbItem of dbItems) {
       try {
-        // Verificar status do item no Pluggy
-        const item = await pluggy.fetchItem(savedItem.item_id);
-
-        // Atualizar status no banco
-        await supabase
-          .from("pluggy_items")
-          .update({
-            status: item.status,
-            institution_name: item.connector.name,
-          })
-          .eq("id", savedItem.id);
-
-        // Sincronizar contas
-        const accountsResult = await syncAccounts(pluggy, supabase, savedItem, item.connector.name);
+        // Sincronizar contas e cartões
+        const accountsResult = await syncAccounts(
+          pluggy, supabase, dbItem, dbItem.institution_name
+        );
         results.accounts += accountsResult.accounts;
         results.creditCards += accountsResult.creditCards;
 
         // Sincronizar transações dos últimos 90 dias
-        results.transactions += await syncTransactions(pluggy, supabase, savedItem.item_id);
+        results.transactions += await syncTransactions(
+          pluggy, supabase, dbItem
+        );
 
         // Sincronizar investimentos
-        results.investments += await syncInvestments(pluggy, supabase, savedItem);
+        results.investments += await syncInvestments(pluggy, supabase, dbItem);
 
         // Sincronizar empréstimos
-        results.loans += await syncLoans(pluggy, supabase, savedItem, item.connector.name);
+        results.loans += await syncLoans(
+          pluggy, supabase, dbItem, dbItem.institution_name
+        );
+
+        results.itemsSynced++;
       } catch {
         // Continua com os outros items mesmo se um falhar
-        console.error(`Erro ao sincronizar item ${savedItem.item_id}`);
       }
     }
 
     return NextResponse.json({
-      message: "Sincronização concluída",
+      message: `Sincronização concluída: ${results.itemsFound} items encontrados, ${results.itemsSynced} sincronizados.`,
       synced: true,
       results,
     });
@@ -84,21 +106,20 @@ export async function POST() {
 async function syncAccounts(
   pluggy: ReturnType<typeof createPluggyClient>,
   supabase: ReturnType<typeof createSupabaseServer>,
-  savedItem: { id: string; item_id: string },
+  dbItem: { id: string; item_id: string },
   institutionName: string
 ) {
   let accountCount = 0;
   let creditCardCount = 0;
 
-  const { results: accounts } = await pluggy.fetchAccounts(savedItem.item_id);
+  const { results: accounts } = await pluggy.fetchAccounts(dbItem.item_id);
 
   for (const account of accounts) {
-    // Upsert da conta
     const { data: upsertedAccount } = await supabase
       .from("accounts")
       .upsert(
         {
-          item_id: savedItem.id,
+          item_id: dbItem.id,
           pluggy_account_id: account.id,
           name: account.name,
           type: account.subtype || account.type,
@@ -154,23 +175,17 @@ async function syncCreditCard(
 async function syncTransactions(
   pluggy: ReturnType<typeof createPluggyClient>,
   supabase: ReturnType<typeof createSupabaseServer>,
-  pluggyItemId: string
+  dbItem: { id: string; item_id: string }
 ) {
   let count = 0;
 
-  // Buscar contas do banco para este item
+  // Buscar contas no DB para este item
   const { data: dbAccounts } = await supabase
     .from("accounts")
     .select("id, pluggy_account_id")
-    .eq("item_id", (
-      await supabase
-        .from("pluggy_items")
-        .select("id")
-        .eq("item_id", pluggyItemId)
-        .single()
-    ).data?.id || "");
+    .eq("item_id", dbItem.id);
 
-  if (!dbAccounts) return 0;
+  if (!dbAccounts || dbAccounts.length === 0) return 0;
 
   const ninetyDaysAgo = new Date();
   ninetyDaysAgo.setDate(ninetyDaysAgo.getDate() - 90);
@@ -183,19 +198,19 @@ async function syncTransactions(
         { from: fromDate }
       );
 
-      // Inserir em lotes para melhor performance
       const batch = transactions.map((tx: PluggyTransaction) => ({
         account_id: dbAccount.id,
         pluggy_transaction_id: tx.id,
         description: tx.description,
         amount: tx.amount,
-        date: typeof tx.date === "string" ? tx.date : new Date(tx.date).toISOString().split("T")[0],
+        date: typeof tx.date === "string"
+          ? tx.date
+          : new Date(tx.date).toISOString().split("T")[0],
         category: tx.category || null,
         type: tx.type,
       }));
 
       if (batch.length > 0) {
-        // Upsert em chunks de 500
         for (let i = 0; i < batch.length; i += 500) {
           const chunk = batch.slice(i, i + 500);
           await supabase
@@ -216,19 +231,19 @@ async function syncTransactions(
 async function syncInvestments(
   pluggy: ReturnType<typeof createPluggyClient>,
   supabase: ReturnType<typeof createSupabaseServer>,
-  savedItem: { id: string; item_id: string }
+  dbItem: { id: string; item_id: string }
 ) {
   let count = 0;
 
   try {
-    const { results: investments } = await pluggy.fetchInvestments(savedItem.item_id);
+    const { results: investments } = await pluggy.fetchInvestments(dbItem.item_id);
 
     for (const inv of investments) {
       await supabase
         .from("investments")
         .upsert(
           {
-            item_id: savedItem.id,
+            item_id: dbItem.id,
             pluggy_investment_id: inv.id,
             name: inv.name,
             type: inv.type,
@@ -252,25 +267,25 @@ async function syncInvestments(
 async function syncLoans(
   pluggy: ReturnType<typeof createPluggyClient>,
   supabase: ReturnType<typeof createSupabaseServer>,
-  savedItem: { id: string; item_id: string },
+  dbItem: { id: string; item_id: string },
   institutionName: string
 ) {
   let count = 0;
 
   try {
-    const { results: loans } = await pluggy.fetchLoans(savedItem.item_id);
+    const { results: loans } = await pluggy.fetchLoans(dbItem.item_id);
 
     for (const loan of loans) {
       await supabase
         .from("loans")
         .upsert(
           {
-            item_id: savedItem.id,
+            item_id: dbItem.id,
             pluggy_loan_id: loan.id,
             institution_name: institutionName,
             name: loan.productName,
             total_amount: loan.contractAmount || 0,
-            installment_amount: 0, // Calculado a partir dos pagamentos
+            installment_amount: 0,
             total_installments: loan.installments?.totalNumberOfInstallments || 0,
             paid_installments: loan.installments?.paidInstallments || 0,
             outstanding_balance: loan.payments?.contractOutstandingBalance || 0,
