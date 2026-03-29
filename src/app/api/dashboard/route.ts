@@ -39,7 +39,7 @@ export async function GET() {
     const totalBalance = bankAccounts.reduce((sum, a) => sum + Number(a.balance), 0);
 
     const totalCreditUsed = (creditCards || []).reduce((sum, c) => sum + Number(c.balance), 0);
-    const totalCreditLimit = (creditCards || []).reduce((sum, c) => sum + Number(c.limit), 0);
+    const totalCreditLimit = (creditCards || []).reduce((sum, c) => sum + Number(c.credit_limit), 0);
 
     const totalInvested = (investments || []).reduce((sum, i) => sum + Number(i.balance), 0);
 
@@ -73,7 +73,7 @@ export async function GET() {
         creditLimit: 0,
         creditUsed: 0,
       };
-      existing.creditLimit += Number(card.limit);
+      existing.creditLimit += Number(card.credit_limit);
       existing.creditUsed += Number(card.balance);
       institutionMap.set(instName, existing);
     }

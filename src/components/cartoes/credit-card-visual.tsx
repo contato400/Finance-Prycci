@@ -9,7 +9,7 @@ interface CreditCardVisualProps {
     name: string;
     last4: string;
     balance: number;
-    limit: number;
+    credit_limit: number;
     available_limit: number;
     accounts?: {
       pluggy_items?: { institution_name: string } | null;
@@ -45,7 +45,7 @@ function getCardGradient(name: string): string {
 export function CreditCardVisual({ card, selected, onClick }: CreditCardVisualProps) {
   const institutionName = card.accounts?.pluggy_items?.institution_name || card.name;
   const gradient = getCardGradient(institutionName);
-  const usagePercent = calcPercentage(card.balance, card.limit);
+  const usagePercent = calcPercentage(card.balance, card.credit_limit);
 
   return (
     <div
@@ -130,7 +130,7 @@ export function CreditCardVisual({ card, selected, onClick }: CreditCardVisualPr
         </div>
 
         <div className="flex items-center justify-between text-xs text-slate-500">
-          <span>Limite: {formatCurrency(card.limit)}</span>
+          <span>Limite: {formatCurrency(card.credit_limit)}</span>
           <span>Disponível: {formatCurrency(card.available_limit)}</span>
         </div>
       </div>

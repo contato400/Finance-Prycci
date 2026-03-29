@@ -10,9 +10,8 @@ export function createPluggyClient(): PluggyClient {
   });
 }
 
-// Gera apiKey via POST /auth (o SDK faz internamente, mas precisamos
-// para chamadas diretas à API REST que o SDK não cobre)
-async function getApiKey(): Promise<string> {
+// Gera apiKey via POST /auth para chamadas REST diretas
+export async function getPluggyApiKey(): Promise<string> {
   const res = await fetch(`${PLUGGY_BASE_URL}/auth`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
@@ -25,34 +24,32 @@ async function getApiKey(): Promise<string> {
 
   if (!res.ok) {
     const body = await res.text();
-    throw new Error(`Pluggy auth failed (${res.status}): ${body}`);
+    throw new Error(`Pluggy auth falhou (${res.status}): ${body}`);
   }
 
   const data = await res.json();
   return data.apiKey;
 }
 
-// Lista todos os items do usuário via API REST (o SDK não tem esse método)
+// Tenta listar items via GET /items (pode retornar 401 no plano dev)
 export interface PluggyItemResponse {
   id: string;
-  connector: {
-    id: number;
-    name: string;
-  };
+  connector: { id: number; name: string };
   status: string;
   executionStatus: string;
   createdAt: string;
   updatedAt: string;
 }
 
-export async function fetchAllItems(): Promise<PluggyItemResponse[]> {
-  const apiKey = await getApiKey();
-  const allItems: PluggyItemResponse[] = [];
-  let page = 1;
+interface FetchItemsResult {
+  items: PluggyItemResponse[];
+  method: "api" | "none";
+  error?: string;
+}
 
-  // Paginar até não ter mais resultados
-  while (true) {
-    const res = await fetch(`${PLUGGY_BASE_URL}/items?page=${page}`, {
+export async function fetchAllItemsFromApi(apiKey: string): Promise<FetchItemsResult> {
+  try {
+    const res = await fetch(`${PLUGGY_BASE_URL}/items?page=1&pageSize=50`, {
       method: "GET",
       headers: {
         "Content-Type": "application/json",
@@ -62,20 +59,38 @@ export async function fetchAllItems(): Promise<PluggyItemResponse[]> {
 
     if (!res.ok) {
       const body = await res.text();
-      throw new Error(`Pluggy fetchItems failed (${res.status}): ${body}`);
+      return {
+        items: [],
+        method: "none",
+        error: `GET /items retornou ${res.status}: ${body.substring(0, 200)}`,
+      };
     }
 
     const data = await res.json();
     const items: PluggyItemResponse[] = data.results || [];
 
-    allItems.push(...items);
-
-    // Se retornou menos que o page size, acabou
-    if (items.length === 0 || allItems.length >= (data.total || 0)) {
-      break;
+    // Buscar páginas adicionais se existirem
+    if (items.length > 0 && items.length < (data.total || 0)) {
+      let page = 2;
+      while (items.length < (data.total || 0)) {
+        const nextRes = await fetch(`${PLUGGY_BASE_URL}/items?page=${page}&pageSize=50`, {
+          headers: { "Content-Type": "application/json", "X-API-KEY": apiKey },
+        });
+        if (!nextRes.ok) break;
+        const nextData = await nextRes.json();
+        const nextItems: PluggyItemResponse[] = nextData.results || [];
+        if (nextItems.length === 0) break;
+        items.push(...nextItems);
+        page++;
+      }
     }
-    page++;
-  }
 
-  return allItems;
+    return { items, method: "api" };
+  } catch (err) {
+    return {
+      items: [],
+      method: "none",
+      error: err instanceof Error ? err.message : String(err),
+    };
+  }
 }

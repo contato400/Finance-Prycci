@@ -19,7 +19,7 @@ interface CreditCardData {
   name: string;
   last4: string;
   balance: number;
-  limit: number;
+  credit_limit: number;
   available_limit: number;
   accounts?: {
     id: string;

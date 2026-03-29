@@ -37,7 +37,7 @@ export interface CreditCard {
   name: string;
   last4: string;
   balance: number;
-  limit: number;
+  credit_limit: number;
   available_limit: number;
   updated_at: string;
 }

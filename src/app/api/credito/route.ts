@@ -34,7 +34,7 @@ export async function GET() {
     ]);
 
     // Métricas de crédito
-    const totalLimit = (creditCards || []).reduce((s, c) => s + Number(c.limit), 0);
+    const totalLimit = (creditCards || []).reduce((s, c) => s + Number(c.credit_limit), 0);
     const totalUsed = (creditCards || []).reduce((s, c) => s + Number(c.balance), 0);
     const totalAvailable = (creditCards || []).reduce((s, c) => s + Number(c.available_limit), 0);
     const creditCompromised = totalLimit > 0 ? Math.round((totalUsed / totalLimit) * 100) : 0;
@@ -46,7 +46,7 @@ export async function GET() {
     for (const card of creditCards || []) {
       const inst = card.accounts?.pluggy_items?.institution_name || "Desconhecido";
       const existing = bankMap.get(inst) || { limit: 0, used: 0, available: 0 };
-      existing.limit += Number(card.limit);
+      existing.limit += Number(card.credit_limit);
       existing.used += Number(card.balance);
       existing.available += Number(card.available_limit);
       bankMap.set(inst, existing);

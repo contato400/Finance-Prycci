@@ -46,7 +46,7 @@ export async function GET(request: Request) {
 
     // Métricas totais
     const totalUsed = (cards || []).reduce((sum, c) => sum + Number(c.balance), 0);
-    const totalLimit = (cards || []).reduce((sum, c) => sum + Number(c.limit), 0);
+    const totalLimit = (cards || []).reduce((sum, c) => sum + Number(c.credit_limit), 0);
     const totalAvailable = (cards || []).reduce((sum, c) => sum + Number(c.available_limit), 0);
 
     return NextResponse.json({
