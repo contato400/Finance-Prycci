@@ -15,16 +15,40 @@ export function Header() {
     setSyncing(true);
     try {
       const res = await fetch("/api/pluggy/sync", { method: "POST" });
-      if (!res.ok) throw new Error("Erro ao sincronizar");
+      const data = await res.json();
+
+      if (!res.ok || data.error) {
+        toast({
+          title: "Erro na sincronização",
+          description: data.error || `Status ${res.status}`,
+          variant: "destructive",
+        });
+        // Logar detalhes no console para debug
+        if (data.logs) console.info("[sync logs]", data.logs);
+        if (data.details) console.info("[sync details]", data.details);
+        return;
+      }
+
       setLastSync(new Date().toLocaleString("pt-BR"));
+
+      const msg = data.message || "Dados atualizados.";
+      const itemErrors = data.itemErrors as Array<{ itemId: string; error: string }> | undefined;
+
+      if (itemErrors && itemErrors.length > 0) {
+        toast({
+          title: "Sincronização parcial",
+          description: `${msg} (${itemErrors.length} item(s) com erro)`,
+        });
+      } else {
+        toast({
+          title: "Sincronização concluída",
+          description: msg,
+        });
+      }
+    } catch (networkError) {
       toast({
-        title: "Sincronização concluída",
-        description: "Todos os dados foram atualizados.",
-      });
-    } catch {
-      toast({
-        title: "Erro na sincronização",
-        description: "Verifique sua conexão e tente novamente.",
+        title: "Erro de rede",
+        description: networkError instanceof Error ? networkError.message : "Sem conexão com o servidor.",
         variant: "destructive",
       });
     } finally {
