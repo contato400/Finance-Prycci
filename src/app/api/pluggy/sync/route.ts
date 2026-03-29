@@ -1,19 +1,17 @@
 import { NextResponse } from "next/server";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
-import {
-  createPluggyClient,
-  getPluggyApiKey,
-  fetchAllItemsFromApi,
-} from "@/lib/pluggy/client";
+import { createPluggyClient } from "@/lib/pluggy/client";
 import { createSupabaseServer } from "@/lib/supabase/server";
-import type { Account as PluggyAccount, Transaction as PluggyTransaction } from "pluggy-sdk";
+import type { Transaction as PluggyTransaction } from "pluggy-sdk";
 
 type LogFn = (msg: string) => void;
 type Pluggy = ReturnType<typeof createPluggyClient>;
 type Supabase = ReturnType<typeof createSupabaseServer>;
 
-// Sincroniza todos os dados do Pluggy com o Supabase
+// Sincroniza todos os dados do Pluggy com o Supabase.
+// Fluxo: busca items salvos no banco (adicionados via PluggyWidget) →
+// para cada item, busca dados via SDK → salva no Supabase.
 export async function POST() {
   const logs: string[] = [];
   const log: LogFn = (msg) => { logs.push(`[${new Date().toISOString()}] ${msg}`); };
@@ -25,85 +23,76 @@ export async function POST() {
     }
 
     // Validar env vars
-    if (!process.env.PLUGGY_CLIENT_ID || !process.env.PLUGGY_CLIENT_SECRET) {
+    const pluggyId = (process.env.PLUGGY_CLIENT_ID || "").trim();
+    const pluggySecret = (process.env.PLUGGY_CLIENT_SECRET || "").trim();
+    const supabaseUrl = (process.env.NEXT_PUBLIC_SUPABASE_URL || "").trim();
+    const supabaseKey = (process.env.SUPABASE_SERVICE_ROLE_KEY || "").trim();
+
+    if (!pluggyId || !pluggySecret) {
       return NextResponse.json({
-        error: "PLUGGY_CLIENT_ID ou PLUGGY_CLIENT_SECRET não configurados no .env.local",
+        error: "PLUGGY_CLIENT_ID ou PLUGGY_CLIENT_SECRET não configurados",
         logs,
       }, { status: 500 });
     }
-    if (!process.env.NEXT_PUBLIC_SUPABASE_URL || !process.env.SUPABASE_SERVICE_ROLE_KEY) {
+    if (!supabaseUrl || !supabaseKey) {
       return NextResponse.json({
-        error: "Variáveis do Supabase não configuradas no .env.local",
+        error: "Variáveis do Supabase não configuradas",
         logs,
       }, { status: 500 });
     }
 
     log("Iniciando sincronização...");
+    log(`Supabase URL: ${supabaseUrl}`);
+    log(`Pluggy Client ID: ${pluggyId.substring(0, 8)}...`);
 
-    const pluggy = createPluggyClient();
     const supabase = createSupabaseServer();
 
-    // 1. Testar Supabase
+    // 1. Testar conexão Supabase
     log("Testando Supabase...");
-    const { error: dbError } = await supabase.from("pluggy_items").select("id").limit(1);
-    if (dbError) {
-      log(`Supabase ERRO: ${dbError.message} (code: ${dbError.code})`);
+    const { error: dbTestError } = await supabase.from("pluggy_items").select("id").limit(1);
+    if (dbTestError) {
+      log(`Supabase ERRO: ${dbTestError.message} (code: ${dbTestError.code}, hint: ${dbTestError.hint || "—"})`);
       return NextResponse.json({
-        error: `Supabase: ${dbError.message}. Verifique se as tabelas foram criadas (rode o SQL no SQL Editor).`,
-        code: dbError.code,
+        error: `Supabase: ${dbTestError.message}. Rode o SQL de criação das tabelas no SQL Editor.`,
+        code: dbTestError.code,
+        hint: dbTestError.hint,
         logs,
       }, { status: 500 });
     }
     log("Supabase OK");
 
-    // 2. Autenticar na Pluggy
-    log("Autenticando na Pluggy API...");
-    let apiKey: string;
-    try {
-      apiKey = await getPluggyApiKey();
-      log(`Pluggy auth OK (apiKey: ${apiKey.substring(0, 15)}...)`);
-    } catch (authErr) {
-      const msg = authErr instanceof Error ? authErr.message : String(authErr);
-      log(`Pluggy auth ERRO: ${msg}`);
-      return NextResponse.json({ error: msg, logs }, { status: 500 });
-    }
+    // 2. Buscar items salvos no banco (adicionados via PluggyWidget / POST /api/pluggy/items)
+    const { data: savedItems, error: fetchItemsError } = await supabase
+      .from("pluggy_items")
+      .select("id, item_id, institution_name")
+      .order("created_at", { ascending: false });
 
-    // 3. Descobrir items — tenta API primeiro, fallback para items salvos no DB
-    log("Buscando items...");
-
-    const apiResult = await fetchAllItemsFromApi(apiKey);
-    log(`GET /items: ${apiResult.method === "api" ? `${apiResult.items.length} items` : `falhou (${apiResult.error})`}`);
-
-    // Items a sincronizar: combinar API + banco
-    const itemIdsToSync = new Map<string, string>(); // item_id → institution_name
-
-    // Items da API (se disponível)
-    for (const item of apiResult.items) {
-      itemIdsToSync.set(item.id, item.connector.name);
-    }
-
-    // Items já salvos no banco (conectados via widget anteriormente)
-    const { data: savedItems } = await supabase.from("pluggy_items").select("item_id, institution_name");
-    for (const saved of savedItems || []) {
-      if (!itemIdsToSync.has(saved.item_id)) {
-        itemIdsToSync.set(saved.item_id, saved.institution_name);
-      }
-    }
-
-    log(`Total de items para sincronizar: ${itemIdsToSync.size} (${apiResult.items.length} da API, ${savedItems?.length || 0} do DB)`);
-
-    if (itemIdsToSync.size === 0) {
+    if (fetchItemsError) {
+      log(`Erro ao buscar items do DB: ${fetchItemsError.message}`);
       return NextResponse.json({
-        message: "Nenhum item encontrado. Adicione um banco pelo botão 'Adicionar Banco' no Dashboard.",
+        error: `Erro ao buscar items: ${fetchItemsError.message}`,
+        logs,
+      }, { status: 500 });
+    }
+
+    if (!savedItems || savedItems.length === 0) {
+      log("Nenhum item no banco. Usuário precisa adicionar banco via widget.");
+      return NextResponse.json({
+        message: "Nenhum banco conectado. Use o botão 'Adicionar Banco' no Dashboard para conectar.",
         synced: false,
         itemsFound: 0,
         logs,
       });
     }
 
-    // 4. Para cada item: validar com o SDK, upsert no DB, sincronizar dados
+    log(`${savedItems.length} item(s) encontrado(s) no banco`);
+
+    // 3. Criar client Pluggy (auth é feita automaticamente pelo SDK)
+    const pluggy = createPluggyClient();
+
+    // 4. Sincronizar cada item
     const results = {
-      itemsFound: itemIdsToSync.size,
+      itemsFound: savedItems.length,
       itemsSynced: 0,
       accounts: 0,
       transactions: 0,
@@ -111,35 +100,21 @@ export async function POST() {
       investments: 0,
       loans: 0,
     };
-    const itemErrors: Array<{ itemId: string; error: string }> = [];
+    const itemErrors: Array<{ itemId: string; institution: string; error: string }> = [];
 
-    for (const [itemId, institutionName] of Array.from(itemIdsToSync.entries())) {
+    for (const dbItem of savedItems) {
       try {
-        // Validar item via SDK (busca dados atualizados)
-        log(`Validando item ${itemId} (${institutionName})...`);
-        const item = await pluggy.fetchItem(itemId);
-        log(`  Status: ${item.status}, Connector: ${item.connector.name}`);
+        log(`Sincronizando ${dbItem.institution_name} (${dbItem.item_id})...`);
 
-        // Upsert no Supabase
-        const { data: dbItem, error: upsertErr } = await supabase
+        // Buscar item atualizado via SDK (valida que ainda existe na Pluggy)
+        const item = await pluggy.fetchItem(dbItem.item_id);
+        log(`  Status: ${item.status}`);
+
+        // Atualizar status no banco
+        await supabase
           .from("pluggy_items")
-          .upsert(
-            {
-              item_id: itemId,
-              institution_name: item.connector.name,
-              status: item.status,
-            },
-            { onConflict: "item_id" }
-          )
-          .select("id, item_id, institution_name")
-          .single();
-
-        if (upsertErr || !dbItem) {
-          const msg = upsertErr?.message || "upsert retornou null";
-          log(`  Erro upsert pluggy_items: ${msg}`);
-          itemErrors.push({ itemId, error: msg });
-          continue;
-        }
+          .update({ status: item.status, institution_name: item.connector.name })
+          .eq("id", dbItem.id);
 
         // Sincronizar contas e cartões
         const acctResult = await syncAccounts(pluggy, supabase, dbItem, item.connector.name, log);
@@ -156,15 +131,15 @@ export async function POST() {
         results.loans += await syncLoans(pluggy, supabase, dbItem, item.connector.name, log);
 
         results.itemsSynced++;
-        log(`Item ${itemId} sincronizado com sucesso`);
-      } catch (itemErr) {
-        const msg = itemErr instanceof Error ? itemErr.message : String(itemErr);
-        log(`ERRO item ${itemId}: ${msg}`);
-        itemErrors.push({ itemId, error: msg });
+        log(`  ${dbItem.institution_name} OK`);
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err);
+        log(`  ERRO ${dbItem.institution_name}: ${msg}`);
+        itemErrors.push({ itemId: dbItem.item_id, institution: dbItem.institution_name, error: msg });
       }
     }
 
-    log(`Sincronização finalizada: ${results.itemsSynced}/${results.itemsFound} items OK`);
+    log(`Finalizado: ${results.itemsSynced}/${results.itemsFound} bancos sincronizados`);
 
     return NextResponse.json({
       message: `${results.itemsSynced} de ${results.itemsFound} bancos sincronizados.`,
@@ -185,7 +160,7 @@ export async function POST() {
   }
 }
 
-// --- Funções de sincronização por tipo de dado ---
+// --- Funções de sincronização ---
 
 async function syncAccounts(
   pluggy: Pluggy, supabase: Supabase,
@@ -195,9 +170,8 @@ async function syncAccounts(
   let accountCount = 0;
   let creditCardCount = 0;
 
-  log(`  Buscando contas...`);
   const { results: accounts } = await pluggy.fetchAccounts(dbItem.item_id);
-  log(`  ${accounts.length} contas encontradas`);
+  log(`  ${accounts.length} contas`);
 
   for (const account of accounts) {
     const { data: upserted, error } = await supabase
@@ -219,35 +193,24 @@ async function syncAccounts(
     accountCount++;
 
     if (account.type === "CREDIT" && account.creditData && upserted) {
-      await syncCreditCard(supabase, upserted.id, account, institutionName, log);
-      creditCardCount++;
+      const cd = account.creditData;
+      const { error: cardErr } = await supabase
+        .from("credit_cards")
+        .upsert({
+          account_id: upserted.id,
+          name: `${institutionName} ${cd.brand || ""}`.trim(),
+          last4: account.number?.slice(-4) || "****",
+          balance: Math.abs(account.balance),
+          credit_limit: cd.creditLimit || 0,
+          available_limit: cd.availableCreditLimit || 0,
+          updated_at: new Date().toISOString(),
+        }, { onConflict: "account_id" });
+      if (cardErr) log(`  Erro cartão: ${cardErr.message}`);
+      else creditCardCount++;
     }
   }
 
-  log(`  Contas: ${accountCount}, Cartões: ${creditCardCount}`);
   return { accounts: accountCount, creditCards: creditCardCount };
-}
-
-async function syncCreditCard(
-  supabase: Supabase, dbAccountId: string,
-  account: PluggyAccount, institutionName: string, log: LogFn
-) {
-  const cd = account.creditData!;
-  const last4 = account.number?.slice(-4) || "****";
-
-  const { error } = await supabase
-    .from("credit_cards")
-    .upsert({
-      account_id: dbAccountId,
-      name: `${institutionName} ${cd.brand || ""}`.trim(),
-      last4,
-      balance: Math.abs(account.balance),
-      credit_limit: cd.creditLimit || 0,
-      available_limit: cd.availableCreditLimit || 0,
-      updated_at: new Date().toISOString(),
-    }, { onConflict: "account_id" });
-
-  if (error) log(`  Erro cartão ${dbAccountId}: ${error.message}`);
 }
 
 async function syncTransactions(
@@ -261,7 +224,7 @@ async function syncTransactions(
     .select("id, pluggy_account_id")
     .eq("item_id", dbItem.id);
 
-  if (!dbAccounts?.length) { log("  Sem contas para buscar transações"); return 0; }
+  if (!dbAccounts?.length) return 0;
 
   const fromDate = new Date();
   fromDate.setDate(fromDate.getDate() - 90);
@@ -269,9 +232,8 @@ async function syncTransactions(
 
   for (const acct of dbAccounts) {
     try {
-      log(`  Transações conta ${acct.pluggy_account_id}...`);
       const txs = await pluggy.fetchAllTransactions(acct.pluggy_account_id, { from });
-      log(`  ${txs.length} transações`);
+      log(`  ${txs.length} transações (${acct.pluggy_account_id})`);
 
       const batch = txs.map((tx: PluggyTransaction) => ({
         account_id: acct.id,
@@ -291,7 +253,7 @@ async function syncTransactions(
       }
       count += batch.length;
     } catch (e) {
-      log(`  Erro transações ${acct.pluggy_account_id}: ${e instanceof Error ? e.message : String(e)}`);
+      log(`  Erro tx ${acct.pluggy_account_id}: ${e instanceof Error ? e.message : String(e)}`);
     }
   }
   return count;
@@ -303,10 +265,8 @@ async function syncInvestments(
 ) {
   let count = 0;
   try {
-    log(`  Buscando investimentos...`);
     const { results: invs } = await pluggy.fetchInvestments(dbItem.item_id);
     log(`  ${invs.length} investimentos`);
-
     for (const inv of invs) {
       const { error } = await supabase
         .from("investments")
@@ -320,7 +280,7 @@ async function syncInvestments(
           value: inv.value || 0,
           updated_at: new Date().toISOString(),
         }, { onConflict: "pluggy_investment_id" });
-      if (error) log(`  Erro investimento ${inv.id}: ${error.message}`);
+      if (error) log(`  Erro investimento: ${error.message}`);
       count++;
     }
   } catch (e) {
@@ -336,10 +296,8 @@ async function syncLoans(
 ) {
   let count = 0;
   try {
-    log(`  Buscando empréstimos...`);
     const { results: loans } = await pluggy.fetchLoans(dbItem.item_id);
     log(`  ${loans.length} empréstimos`);
-
     for (const loan of loans) {
       const { error } = await supabase
         .from("loans")
@@ -356,7 +314,7 @@ async function syncLoans(
           interest_rate: loan.CET || 0,
           updated_at: new Date().toISOString(),
         }, { onConflict: "pluggy_loan_id" });
-      if (error) log(`  Erro empréstimo ${loan.id}: ${error.message}`);
+      if (error) log(`  Erro empréstimo: ${error.message}`);
       count++;
     }
   } catch (e) {

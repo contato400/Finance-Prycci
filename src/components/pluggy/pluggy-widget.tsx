@@ -5,7 +5,9 @@ import { Button } from "@/components/ui/button";
 import { Plus } from "lucide-react";
 import { toast } from "@/hooks/use-toast";
 
-// Componente que abre o Pluggy Connect Widget para adicionar novas contas bancárias
+// Componente que abre o Pluggy Connect Widget para adicionar novas contas.
+// Fluxo: gera connectToken → abre widget → onSuccess recebe itemId →
+// salva no banco via POST /api/pluggy/items → sincroniza via POST /api/pluggy/sync.
 export function PluggyWidget() {
   const [loading, setLoading] = useState(false);
 
@@ -15,7 +17,10 @@ export function PluggyWidget() {
     try {
       // 1. Gerar connect token
       const tokenRes = await fetch("/api/pluggy/connect-token", { method: "POST" });
-      if (!tokenRes.ok) throw new Error("Erro ao gerar token");
+      if (!tokenRes.ok) {
+        const err = await tokenRes.json().catch(() => ({}));
+        throw new Error(err.error || `Erro ao gerar token (${tokenRes.status})`);
+      }
       const { accessToken } = await tokenRes.json();
 
       // 2. Carregar e abrir o Pluggy Connect Widget
@@ -25,21 +30,55 @@ export function PluggyWidget() {
         connectToken: accessToken,
         theme: "dark",
         onSuccess: async (data) => {
+          const itemId = data.item.id;
+          toast({
+            title: "Banco conectado!",
+            description: "Salvando dados...",
+          });
+
           try {
-            // 3. Salvar o item conectado no banco
-            await fetch("/api/pluggy/items", {
+            // 3. Salvar o itemId no banco (pluggy_items)
+            const saveRes = await fetch("/api/pluggy/items", {
               method: "POST",
               headers: { "Content-Type": "application/json" },
-              body: JSON.stringify({ itemId: data.item.id }),
+              body: JSON.stringify({ itemId }),
             });
 
-            // 4. Sincronizar dados
-            await fetch("/api/pluggy/sync", { method: "POST" });
+            if (!saveRes.ok) {
+              const err = await saveRes.json().catch(() => ({}));
+              throw new Error(err.error || `Erro ao salvar item (${saveRes.status})`);
+            }
 
-            toast({ title: "Banco conectado com sucesso!" });
+            // 4. Sincronizar dados do item
+            toast({
+              title: "Sincronizando dados...",
+              description: "Buscando contas, transações e investimentos.",
+            });
+
+            const syncRes = await fetch("/api/pluggy/sync", { method: "POST" });
+            const syncData = await syncRes.json();
+
+            if (syncRes.ok && syncData.synced) {
+              toast({
+                title: "Banco adicionado com sucesso!",
+                description: syncData.message,
+              });
+            } else {
+              toast({
+                title: "Banco salvo, mas sincronização falhou",
+                description: syncData.error || syncData.message || "Tente sincronizar novamente.",
+                variant: "destructive",
+              });
+            }
+
             window.location.reload();
-          } catch {
-            toast({ title: "Erro ao salvar conexão", variant: "destructive" });
+          } catch (saveErr) {
+            const msg = saveErr instanceof Error ? saveErr.message : "Erro desconhecido";
+            toast({
+              title: "Erro ao salvar conexão",
+              description: msg,
+              variant: "destructive",
+            });
           }
         },
         onError: (error) => {
@@ -48,6 +87,7 @@ export function PluggyWidget() {
             description: error.message,
             variant: "destructive",
           });
+          setLoading(false);
         },
         onClose: () => {
           setLoading(false);
@@ -55,8 +95,13 @@ export function PluggyWidget() {
       });
 
       await pluggyConnect.init();
-    } catch {
-      toast({ title: "Erro ao abrir widget", variant: "destructive" });
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : "Erro desconhecido";
+      toast({
+        title: "Erro ao abrir widget",
+        description: msg,
+        variant: "destructive",
+      });
       setLoading(false);
     }
   }
