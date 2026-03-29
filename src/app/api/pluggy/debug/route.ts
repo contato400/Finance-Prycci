@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
-import { supabaseSelect } from "@/lib/supabase/rest";
+import sql from "@/lib/db";
 
 const PLUGGY_BASE_URL = "https://api.pluggy.ai";
 
@@ -15,15 +15,15 @@ export async function GET() {
       return NextResponse.json({ error: "Não autorizado" }, { status: 401 });
     }
 
-    // 1. Verificar variáveis de ambiente
+    // 1. Variáveis de ambiente
     checks.env = {
       PLUGGY_CLIENT_ID: process.env.PLUGGY_CLIENT_ID ? `${process.env.PLUGGY_CLIENT_ID.substring(0, 8)}...` : "MISSING",
-      PLUGGY_CLIENT_SECRET: process.env.PLUGGY_CLIENT_SECRET ? `${process.env.PLUGGY_CLIENT_SECRET.substring(0, 8)}...` : "MISSING",
+      PLUGGY_CLIENT_SECRET: process.env.PLUGGY_CLIENT_SECRET ? "SET" : "MISSING",
+      DATABASE_URL: process.env.DATABASE_URL ? `${process.env.DATABASE_URL.substring(0, 30)}...` : "MISSING",
       NEXT_PUBLIC_SUPABASE_URL: process.env.NEXT_PUBLIC_SUPABASE_URL || "MISSING",
-      SUPABASE_SERVICE_ROLE_KEY: process.env.SUPABASE_SERVICE_ROLE_KEY ? `${process.env.SUPABASE_SERVICE_ROLE_KEY.substring(0, 10)}...` : "MISSING",
     };
 
-    // 2. Testar autenticação Pluggy
+    // 2. Pluggy auth
     try {
       const authRes = await fetch(`${PLUGGY_BASE_URL}/auth`, {
         method: "POST",
@@ -35,46 +35,28 @@ export async function GET() {
         }),
       });
       const authBody = await authRes.text();
-      if (authRes.ok) {
-        const authData = JSON.parse(authBody);
-        checks.pluggyAuth = {
-          status: "OK",
-          httpStatus: authRes.status,
-          hasApiKey: !!authData.apiKey,
-        };
-      } else {
-        checks.pluggyAuth = {
-          status: "FAILED",
-          httpStatus: authRes.status,
-          body: authBody.substring(0, 500),
-        };
-      }
-    } catch (authError) {
-      checks.pluggyAuth = {
-        status: "ERROR",
-        message: authError instanceof Error ? authError.message : String(authError),
-      };
+      checks.pluggyAuth = authRes.ok
+        ? { status: "OK", hasApiKey: !!JSON.parse(authBody).apiKey }
+        : { status: "FAILED", httpStatus: authRes.status, body: authBody.substring(0, 300) };
+    } catch (e) {
+      checks.pluggyAuth = { status: "ERROR", message: e instanceof Error ? e.message : String(e) };
     }
 
-    // 3. Testar Supabase REST API — verificar cada tabela
+    // 3. PostgreSQL direto — testar conexão e cada tabela
     const tables = ["pluggy_items", "accounts", "transactions", "credit_cards", "investments", "loans", "insights_cache", "credit_score"];
     const tableChecks: Record<string, unknown> = {};
 
     for (const table of tables) {
-      const { data, error, count } = await supabaseSelect(table, {
-        select: "id",
-        limit: 1,
-        count: true,
-      });
-
-      if (error) {
-        tableChecks[table] = { status: "ERROR", ...error };
-      } else {
-        tableChecks[table] = { status: "OK", count: count ?? 0, sample: data?.length ?? 0 };
+      try {
+        const result = await sql.unsafe(`SELECT count(*) as total FROM ${table}`);
+        tableChecks[table] = { status: "OK", count: Number(result[0].total) };
+      } catch (e) {
+        const msg = e instanceof Error ? e.message : String(e);
+        tableChecks[table] = { status: "ERROR", message: msg.substring(0, 200) };
       }
     }
 
-    checks.supabase = { status: "OK", restApi: true, tables: tableChecks };
+    checks.database = { status: "OK", method: "postgres (direct TCP)", tables: tableChecks };
 
     return NextResponse.json({ checks });
   } catch (error) {

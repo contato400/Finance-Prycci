@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
-import { supabaseSelect } from "@/lib/supabase/rest";
+import sql from "@/lib/db";
 
 // Retorna contas com filtro, transações paginadas e gastos por categoria
 export async function GET(request: Request) {
@@ -18,27 +18,20 @@ export async function GET(request: Request) {
     const pageSize = 20;
 
     // Buscar contas
-    let accountFilter = "type=in.(CHECKING_ACCOUNT,SAVINGS_ACCOUNT,BANK)";
-    if (typeFilter) accountFilter = `type=eq.${typeFilter}`;
+    const accounts = typeFilter
+      ? await sql`
+          SELECT a.*, p.institution_name FROM accounts a
+          JOIN pluggy_items p ON a.item_id = p.id
+          WHERE a.type = ${typeFilter} ORDER BY a.updated_at DESC`
+      : await sql`
+          SELECT a.*, p.institution_name FROM accounts a
+          JOIN pluggy_items p ON a.item_id = p.id
+          WHERE a.type IN ('CHECKING_ACCOUNT', 'SAVINGS_ACCOUNT', 'BANK')
+          ORDER BY a.updated_at DESC`;
 
-    const { data: accounts } = await supabaseSelect<{
-      id: string; item_id: string; pluggy_account_id: string;
-      name: string; type: string; balance: number; currency: string; updated_at: string;
-    }>("accounts", { select: "*", filter: accountFilter, order: "updated_at.desc" });
-
-    // Enriquecer com institution_name
-    const itemIds = Array.from(new Set((accounts || []).map((a) => a.item_id)));
-    const instMap = new Map<string, string>();
-    if (itemIds.length > 0) {
-      const { data: items } = await supabaseSelect<{ id: string; institution_name: string }>(
-        "pluggy_items", { select: "id,institution_name", filter: `id=in.(${itemIds.join(",")})` }
-      );
-      for (const item of items || []) instMap.set(item.id, item.institution_name);
-    }
-
-    const enrichedAccounts = (accounts || []).map((a) => ({
+    const enriched = accounts.map((a) => ({
       ...a,
-      pluggy_items: { institution_name: instMap.get(a.item_id) || "—" },
+      pluggy_items: { institution_name: a.institution_name },
     }));
 
     // Transações paginadas
@@ -50,57 +43,38 @@ export async function GET(request: Request) {
       thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
       const fromDate = thirtyDaysAgo.toISOString().split("T")[0];
 
-      const { count } = await supabaseSelect("transactions", {
-        select: "id",
-        filter: `account_id=eq.${accountId}&date=gte.${fromDate}`,
-        count: true,
-        limit: 0,
-      });
-      totalTransactions = count || 0;
+      const [{ total }] = await sql`
+        SELECT count(*) as total FROM transactions
+        WHERE account_id = ${accountId}::uuid AND date >= ${fromDate}`;
+      totalTransactions = Number(total);
 
       const offset = (page - 1) * pageSize;
-      const { data: txData } = await supabaseSelect("transactions", {
-        select: "*",
-        filter: `account_id=eq.${accountId}&date=gte.${fromDate}&offset=${offset}`,
-        order: "date.desc",
-        limit: pageSize,
-      });
-      transactions = txData;
+      transactions = await sql`
+        SELECT * FROM transactions
+        WHERE account_id = ${accountId}::uuid AND date >= ${fromDate}
+        ORDER BY date DESC LIMIT ${pageSize} OFFSET ${offset}`;
     }
 
     // Gastos por categoria (últimos 30 dias, débitos)
     const thirtyDaysAgo = new Date();
     thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
-    const accountIds = (accounts || []).map((a) => a.id);
+    const fromDate30 = thirtyDaysAgo.toISOString().split("T")[0];
+    const accountIds = accounts.map((a) => a.id);
 
     let categoryData: Array<{ category: string; total: number }> = [];
     if (accountIds.length > 0) {
-      const { data: allTx } = await supabaseSelect<{
-        category: string | null; amount: number; type: string;
-      }>("transactions", {
-        select: "category,amount,type",
-        filter: `account_id=in.(${accountIds.join(",")})&type=eq.DEBIT&date=gte.${thirtyDaysAgo.toISOString().split("T")[0]}`,
-      });
-
-      const catMap = new Map<string, number>();
-      for (const tx of allTx || []) {
-        const cat = tx.category || "Sem categoria";
-        catMap.set(cat, (catMap.get(cat) || 0) + Math.abs(Number(tx.amount)));
-      }
-      categoryData = Array.from(catMap.entries())
-        .map(([category, total]) => ({ category, total }))
-        .sort((a, b) => b.total - a.total)
-        .slice(0, 10);
+      const catRows = await sql`
+        SELECT COALESCE(category, 'Sem categoria') as category, SUM(ABS(amount)) as total
+        FROM transactions
+        WHERE account_id = ANY(${accountIds}::uuid[]) AND type = 'DEBIT' AND date >= ${fromDate30}
+        GROUP BY COALESCE(category, 'Sem categoria')
+        ORDER BY total DESC LIMIT 10`;
+      categoryData = catRows.map((r) => ({ category: r.category, total: Number(r.total) }));
     }
 
     return NextResponse.json({
-      accounts: enrichedAccounts,
-      transactions,
-      totalTransactions,
-      page,
-      pageSize,
-      totalPages: Math.ceil(totalTransactions / pageSize),
-      categoryData,
+      accounts: enriched, transactions, totalTransactions,
+      page, pageSize, totalPages: Math.ceil(totalTransactions / pageSize), categoryData,
     });
   } catch (error) {
     const message = error instanceof Error ? error.message : "Erro ao buscar contas";

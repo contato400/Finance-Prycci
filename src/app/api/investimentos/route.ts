@@ -1,16 +1,11 @@
 import { NextResponse } from "next/server";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
-import { supabaseSelect } from "@/lib/supabase/rest";
+import sql from "@/lib/db";
 
 const TYPE_LABELS: Record<string, string> = {
-  FIXED_INCOME: "Renda Fixa",
-  MUTUAL_FUND: "Fundos",
-  EQUITY: "Ações",
-  ETF: "ETF",
-  COE: "COE",
-  SECURITY: "Previdência",
-  OTHER: "Outros",
+  FIXED_INCOME: "Renda Fixa", MUTUAL_FUND: "Fundos", EQUITY: "Ações",
+  ETF: "ETF", COE: "COE", SECURITY: "Previdência", OTHER: "Outros",
 };
 
 // Retorna investimentos agrupados por classe e instituição
@@ -21,25 +16,18 @@ export async function GET() {
       return NextResponse.json({ error: "Não autorizado" }, { status: 401 });
     }
 
-    const [invRes, itemsRes] = await Promise.all([
-      supabaseSelect<{
-        id: string; item_id: string; name: string; type: string;
-        balance: number; quantity: number; value: number;
-      }>("investments", { select: "*", order: "balance.desc" }),
-      supabaseSelect<{ id: string; institution_name: string }>(
-        "pluggy_items", { select: "id,institution_name" }
-      ),
-    ]);
+    const investments = await sql`
+      SELECT i.*, p.institution_name
+      FROM investments i
+      JOIN pluggy_items p ON i.item_id = p.id
+      ORDER BY i.balance DESC
+    `;
 
-    const all = invRes.data || [];
-    const itemMap = new Map<string, string>();
-    for (const i of itemsRes.data || []) itemMap.set(i.id, i.institution_name);
-
-    const totalInvested = all.reduce((s, i) => s + Number(i.balance), 0);
+    const totalInvested = investments.reduce((s, i) => s + Number(i.balance), 0);
 
     // Por classe
     const byClassMap = new Map<string, number>();
-    for (const inv of all) {
+    for (const inv of investments) {
       const label = TYPE_LABELS[inv.type] || inv.type;
       byClassMap.set(label, (byClassMap.get(label) || 0) + Number(inv.balance));
     }
@@ -49,21 +37,19 @@ export async function GET() {
 
     // Por instituição
     const byInstMap = new Map<string, number>();
-    for (const inv of all) {
-      const inst = itemMap.get(inv.item_id) || "Desconhecido";
+    for (const inv of investments) {
+      const inst = inv.institution_name || "Desconhecido";
       byInstMap.set(inst, (byInstMap.get(inst) || 0) + Number(inv.balance));
     }
     const byInstitution = Array.from(byInstMap.entries())
       .map(([institution, total]) => ({ institution, total }))
       .sort((a, b) => b.total - a.total);
 
-    const assets = all.map((inv) => ({
+    const assets = investments.map((inv) => ({
       id: inv.id, name: inv.name,
       type: TYPE_LABELS[inv.type] || inv.type,
-      balance: Number(inv.balance),
-      quantity: Number(inv.quantity),
-      value: Number(inv.value),
-      institution: itemMap.get(inv.item_id) || "—",
+      balance: Number(inv.balance), quantity: Number(inv.quantity),
+      value: Number(inv.value), institution: inv.institution_name || "—",
     }));
 
     return NextResponse.json({ totalInvested, byClass, byInstitution, assets });

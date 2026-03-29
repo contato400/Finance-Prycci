@@ -2,9 +2,9 @@ import { NextResponse } from "next/server";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import { createPluggyClient } from "@/lib/pluggy/client";
-import { supabaseUpsert, supabaseSelect } from "@/lib/supabase/rest";
+import sql from "@/lib/db";
 
-// Salva um novo item do Pluggy no banco de dados
+// Salva um novo item do Pluggy no banco
 export async function POST(request: Request) {
   try {
     const session = await getServerSession(authOptions);
@@ -20,21 +20,16 @@ export async function POST(request: Request) {
     const pluggy = createPluggyClient();
     const item = await pluggy.fetchItem(itemId);
 
-    const { data, error } = await supabaseUpsert(
-      "pluggy_items",
-      {
-        item_id: itemId,
-        institution_name: item.connector.name,
-        status: item.status,
-      },
-      "item_id"
-    );
+    const [row] = await sql`
+      INSERT INTO pluggy_items (item_id, institution_name, status)
+      VALUES (${itemId}, ${item.connector.name}, ${item.status})
+      ON CONFLICT (item_id) DO UPDATE SET
+        institution_name = EXCLUDED.institution_name,
+        status = EXCLUDED.status
+      RETURNING *
+    `;
 
-    if (error) {
-      return NextResponse.json({ error: error.message }, { status: 500 });
-    }
-
-    return NextResponse.json({ item: data?.[0] ?? null });
+    return NextResponse.json({ item: row });
   } catch (error) {
     const message = error instanceof Error ? error.message : "Erro ao salvar item";
     return NextResponse.json({ error: message }, { status: 500 });
@@ -49,16 +44,11 @@ export async function GET() {
       return NextResponse.json({ error: "Não autorizado" }, { status: 401 });
     }
 
-    const { data, error } = await supabaseSelect("pluggy_items", {
-      select: "*",
-      order: "created_at.desc",
-    });
+    const items = await sql`
+      SELECT * FROM pluggy_items ORDER BY created_at DESC
+    `;
 
-    if (error) {
-      return NextResponse.json({ error: error.message }, { status: 500 });
-    }
-
-    return NextResponse.json({ items: data });
+    return NextResponse.json({ items });
   } catch (error) {
     const message = error instanceof Error ? error.message : "Erro ao buscar items";
     return NextResponse.json({ error: message }, { status: 500 });
