@@ -1,9 +1,8 @@
 import { NextResponse } from "next/server";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
-import { createSupabaseServer } from "@/lib/supabase/server";
+import { supabaseSelect } from "@/lib/supabase/rest";
 
-// Mapeamento de tipos Pluggy para classes legíveis em pt-BR
 const TYPE_LABELS: Record<string, string> = {
   FIXED_INCOME: "Renda Fixa",
   MUTUAL_FUND: "Fundos",
@@ -14,7 +13,7 @@ const TYPE_LABELS: Record<string, string> = {
   OTHER: "Outros",
 };
 
-// Retorna investimentos agrupados por classe e por instituição
+// Retorna investimentos agrupados por classe e instituição
 export async function GET() {
   try {
     const session = await getServerSession(authOptions);
@@ -22,57 +21,52 @@ export async function GET() {
       return NextResponse.json({ error: "Não autorizado" }, { status: 401 });
     }
 
-    const supabase = createSupabaseServer();
+    const [invRes, itemsRes] = await Promise.all([
+      supabaseSelect<{
+        id: string; item_id: string; name: string; type: string;
+        balance: number; quantity: number; value: number;
+      }>("investments", { select: "*", order: "balance.desc" }),
+      supabaseSelect<{ id: string; institution_name: string }>(
+        "pluggy_items", { select: "id,institution_name" }
+      ),
+    ]);
 
-    const { data: investments } = await supabase
-      .from("investments")
-      .select("*, pluggy_items(institution_name)")
-      .order("balance", { ascending: false });
+    const all = invRes.data || [];
+    const itemMap = new Map<string, string>();
+    for (const i of itemsRes.data || []) itemMap.set(i.id, i.institution_name);
 
-    const all = investments || [];
     const totalInvested = all.reduce((s, i) => s + Number(i.balance), 0);
 
-    // Agrupar por classe (type)
+    // Por classe
     const byClassMap = new Map<string, number>();
     for (const inv of all) {
       const label = TYPE_LABELS[inv.type] || inv.type;
       byClassMap.set(label, (byClassMap.get(label) || 0) + Number(inv.balance));
     }
-    const byClass: Array<{ type: string; total: number }> = [];
-    byClassMap.forEach((total, type) => {
-      byClass.push({ type, total });
-    });
-    byClass.sort((a, b) => b.total - a.total);
+    const byClass = Array.from(byClassMap.entries())
+      .map(([type, total]) => ({ type, total }))
+      .sort((a, b) => b.total - a.total);
 
-    // Agrupar por instituição
+    // Por instituição
     const byInstMap = new Map<string, number>();
     for (const inv of all) {
-      const inst = inv.pluggy_items?.institution_name || "Desconhecido";
+      const inst = itemMap.get(inv.item_id) || "Desconhecido";
       byInstMap.set(inst, (byInstMap.get(inst) || 0) + Number(inv.balance));
     }
-    const byInstitution: Array<{ institution: string; total: number }> = [];
-    byInstMap.forEach((total, institution) => {
-      byInstitution.push({ institution, total });
-    });
-    byInstitution.sort((a, b) => b.total - a.total);
+    const byInstitution = Array.from(byInstMap.entries())
+      .map(([institution, total]) => ({ institution, total }))
+      .sort((a, b) => b.total - a.total);
 
-    // Lista de ativos com label do tipo
     const assets = all.map((inv) => ({
-      id: inv.id,
-      name: inv.name,
+      id: inv.id, name: inv.name,
       type: TYPE_LABELS[inv.type] || inv.type,
       balance: Number(inv.balance),
       quantity: Number(inv.quantity),
       value: Number(inv.value),
-      institution: inv.pluggy_items?.institution_name || "—",
+      institution: itemMap.get(inv.item_id) || "—",
     }));
 
-    return NextResponse.json({
-      totalInvested,
-      byClass,
-      byInstitution,
-      assets,
-    });
+    return NextResponse.json({ totalInvested, byClass, byInstitution, assets });
   } catch (error) {
     const message = error instanceof Error ? error.message : "Erro ao buscar investimentos";
     return NextResponse.json({ error: message }, { status: 500 });

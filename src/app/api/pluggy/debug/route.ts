@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
-import { createSupabaseServer } from "@/lib/supabase/server";
+import { supabaseSelect } from "@/lib/supabase/rest";
 
 const PLUGGY_BASE_URL = "https://api.pluggy.ai";
 
@@ -41,44 +41,7 @@ export async function GET() {
           status: "OK",
           httpStatus: authRes.status,
           hasApiKey: !!authData.apiKey,
-          apiKeyPrefix: authData.apiKey ? `${authData.apiKey.substring(0, 20)}...` : null,
         };
-
-        // 3. Testar listagem de items
-        try {
-          const itemsRes = await fetch(`${PLUGGY_BASE_URL}/items?page=1`, {
-            headers: {
-              "Content-Type": "application/json",
-              "X-API-KEY": authData.apiKey,
-            },
-          });
-          const itemsBody = await itemsRes.text();
-          if (itemsRes.ok) {
-            const itemsData = JSON.parse(itemsBody);
-            checks.pluggyItems = {
-              status: "OK",
-              httpStatus: itemsRes.status,
-              total: itemsData.total,
-              resultsCount: itemsData.results?.length || 0,
-              items: (itemsData.results || []).map((item: { id: string; status: string; connector: { name: string } }) => ({
-                id: item.id,
-                connector: item.connector?.name,
-                status: item.status,
-              })),
-            };
-          } else {
-            checks.pluggyItems = {
-              status: "FAILED",
-              httpStatus: itemsRes.status,
-              body: itemsBody.substring(0, 500),
-            };
-          }
-        } catch (itemsError) {
-          checks.pluggyItems = {
-            status: "ERROR",
-            message: itemsError instanceof Error ? itemsError.message : String(itemsError),
-          };
-        }
       } else {
         checks.pluggyAuth = {
           status: "FAILED",
@@ -93,31 +56,25 @@ export async function GET() {
       };
     }
 
-    // 4. Testar conexão Supabase e verificar tabelas
-    try {
-      const supabase = createSupabaseServer();
-      const tables = ["pluggy_items", "accounts", "transactions", "credit_cards", "investments", "loans", "insights_cache", "credit_score"];
-      const tableChecks: Record<string, unknown> = {};
+    // 3. Testar Supabase REST API — verificar cada tabela
+    const tables = ["pluggy_items", "accounts", "transactions", "credit_cards", "investments", "loans", "insights_cache", "credit_score"];
+    const tableChecks: Record<string, unknown> = {};
 
-      for (const table of tables) {
-        const { error, count } = await supabase
-          .from(table)
-          .select("*", { count: "exact", head: true });
+    for (const table of tables) {
+      const { data, error, count } = await supabaseSelect(table, {
+        select: "id",
+        limit: 1,
+        count: true,
+      });
 
-        if (error) {
-          tableChecks[table] = { status: "ERROR", code: error.code, message: error.message };
-        } else {
-          tableChecks[table] = { status: "OK", count: count ?? 0 };
-        }
+      if (error) {
+        tableChecks[table] = { status: "ERROR", ...error };
+      } else {
+        tableChecks[table] = { status: "OK", count: count ?? 0, sample: data?.length ?? 0 };
       }
-
-      checks.supabase = { status: "OK", tables: tableChecks };
-    } catch (dbError) {
-      checks.supabase = {
-        status: "ERROR",
-        message: dbError instanceof Error ? dbError.message : String(dbError),
-      };
     }
+
+    checks.supabase = { status: "OK", restApi: true, tables: tableChecks };
 
     return NextResponse.json({ checks });
   } catch (error) {

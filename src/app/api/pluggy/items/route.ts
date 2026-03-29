@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import { createPluggyClient } from "@/lib/pluggy/client";
-import { createSupabaseServer } from "@/lib/supabase/server";
+import { supabaseUpsert, supabaseSelect } from "@/lib/supabase/rest";
 
 // Salva um novo item do Pluggy no banco de dados
 export async function POST(request: Request) {
@@ -20,27 +20,21 @@ export async function POST(request: Request) {
     const pluggy = createPluggyClient();
     const item = await pluggy.fetchItem(itemId);
 
-    const supabase = createSupabaseServer();
-
-    // Upsert para evitar duplicatas
-    const { data, error } = await supabase
-      .from("pluggy_items")
-      .upsert(
-        {
-          item_id: itemId,
-          institution_name: item.connector.name,
-          status: item.status,
-        },
-        { onConflict: "item_id" }
-      )
-      .select()
-      .single();
+    const { data, error } = await supabaseUpsert(
+      "pluggy_items",
+      {
+        item_id: itemId,
+        institution_name: item.connector.name,
+        status: item.status,
+      },
+      "item_id"
+    );
 
     if (error) {
       return NextResponse.json({ error: error.message }, { status: 500 });
     }
 
-    return NextResponse.json({ item: data });
+    return NextResponse.json({ item: data?.[0] ?? null });
   } catch (error) {
     const message = error instanceof Error ? error.message : "Erro ao salvar item";
     return NextResponse.json({ error: message }, { status: 500 });
@@ -55,11 +49,10 @@ export async function GET() {
       return NextResponse.json({ error: "Não autorizado" }, { status: 401 });
     }
 
-    const supabase = createSupabaseServer();
-    const { data, error } = await supabase
-      .from("pluggy_items")
-      .select("*")
-      .order("created_at", { ascending: false });
+    const { data, error } = await supabaseSelect("pluggy_items", {
+      select: "*",
+      order: "created_at.desc",
+    });
 
     if (error) {
       return NextResponse.json({ error: error.message }, { status: 500 });
