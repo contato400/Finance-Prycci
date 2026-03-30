@@ -2,12 +2,11 @@ import { NextResponse } from "next/server";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import { translateCategory } from "@/lib/categories";
-import { translateInstitution } from "@/lib/institutions";
 import sql from "@/lib/db";
 
 export const dynamic = "force-dynamic";
 
-// Retorna contas com filtro, transações paginadas e gastos por categoria
+// Retorna contas bancárias (não cartões de crédito), transações e gastos por categoria
 export async function GET(request: Request) {
   try {
     const session = await getServerSession(authOptions);
@@ -21,21 +20,24 @@ export async function GET(request: Request) {
     const page = parseInt(searchParams.get("page") || "1");
     const pageSize = 20;
 
-    // Buscar contas
+    // Buscar contas — filtro exclui cartões de crédito por padrão
+    // Se typeFilter = "ALL", mostra tudo exceto CREDIT
+    // Se typeFilter é específico (CHECKING_ACCOUNT, SAVINGS_ACCOUNT), filtra
     const accounts = typeFilter
       ? await sql`
           SELECT a.*, p.institution_name FROM accounts a
           JOIN pluggy_items p ON a.item_id = p.id
-          WHERE a.type = ${typeFilter} ORDER BY a.updated_at DESC`
+          WHERE a.type = ${typeFilter}
+          ORDER BY a.updated_at DESC`
       : await sql`
           SELECT a.*, p.institution_name FROM accounts a
           JOIN pluggy_items p ON a.item_id = p.id
-          WHERE a.type IN ('CHECKING_ACCOUNT', 'SAVINGS_ACCOUNT', 'BANK')
+          WHERE a.type NOT IN ('CREDIT', 'CREDIT_CARD')
           ORDER BY a.updated_at DESC`;
 
     const enriched = accounts.map((a) => ({
       ...a,
-      pluggy_items: { institution_name: translateInstitution(a.institution_name) },
+      pluggy_items: { institution_name: a.institution_name || "Desconhecido" },
     }));
 
     // Transações paginadas

@@ -1,10 +1,8 @@
 import { NextResponse } from "next/server";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
-import { translateInstitution } from "@/lib/institutions";
 import sql from "@/lib/db";
 
-// Forçar rota dinâmica (sem cache estático do Next.js)
 export const dynamic = "force-dynamic";
 
 // Dashboard: agrega dados de todas as tabelas
@@ -17,50 +15,48 @@ export async function GET() {
 
     const thirtyDaysAgo = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString().split("T")[0];
 
+    // Todas as queries em paralelo
     const [
       items,
-      accounts,
-      creditCards,
+      allAccounts,
       investmentTotals,
       transactions,
     ] = await Promise.all([
-      sql`SELECT id FROM pluggy_items`,
-      sql`SELECT a.id, a.item_id, a.type, a.balance, p.institution_name
+      sql`SELECT id, institution_name FROM pluggy_items`,
+      sql`SELECT a.id, a.item_id, a.type, a.name, a.balance, a.credit_limit,
+                 p.institution_name
           FROM accounts a JOIN pluggy_items p ON a.item_id = p.id`,
-      sql`SELECT cc.id, cc.account_id, cc.balance, cc.credit_limit, a.item_id, p.institution_name
-          FROM credit_cards cc
-          JOIN accounts a ON cc.account_id = a.id
-          JOIN pluggy_items p ON a.item_id = p.id`,
       sql`SELECT COALESCE(SUM(balance), 0) as total FROM investments`,
       sql`SELECT date::text as date, amount FROM transactions
           WHERE date >= ${thirtyDaysAgo} ORDER BY date ASC`,
     ]);
 
+    // Separar contas bancárias e contas de crédito (cartões)
+    const bankAccounts = allAccounts.filter((a) => a.type !== "CREDIT" && a.type !== "CREDIT_CARD");
+    const creditAccounts = allAccounts.filter((a) => a.type === "CREDIT" || a.type === "CREDIT_CARD");
+
     // Métricas
-    const bankAccounts = accounts.filter(
-      (a) => a.type === "CHECKING_ACCOUNT" || a.type === "SAVINGS_ACCOUNT" || a.type === "BANK"
-    );
     const totalBalance = bankAccounts.reduce((s, a) => s + Number(a.balance), 0);
-    const totalCreditUsed = creditCards.reduce((s, c) => s + Number(c.balance), 0);
-    const totalCreditLimit = creditCards.reduce((s, c) => s + Number(c.credit_limit), 0);
+    const totalCreditUsed = creditAccounts.reduce((s, a) => s + Math.abs(Number(a.balance)), 0);
+    const totalCreditLimit = creditAccounts.reduce((s, a) => s + Number(a.credit_limit || 0), 0);
     const totalInvested = Number(investmentTotals[0]?.total || 0);
     const netBalance = totalBalance - totalCreditUsed;
 
-    // Agrupar por instituição
+    // Agrupar por instituição (pluggy_items)
     const instData = new Map<string, { name: string; balance: number; creditLimit: number; creditUsed: number }>();
 
     for (const a of bankAccounts) {
-      const name = translateInstitution(a.institution_name);
+      const name = a.institution_name || "Desconhecido";
       const e = instData.get(name) || { name, balance: 0, creditLimit: 0, creditUsed: 0 };
       e.balance += Number(a.balance);
       instData.set(name, e);
     }
 
-    for (const c of creditCards) {
-      const name = translateInstitution(c.institution_name);
+    for (const a of creditAccounts) {
+      const name = a.institution_name || "Desconhecido";
       const e = instData.get(name) || { name, balance: 0, creditLimit: 0, creditUsed: 0 };
-      e.creditLimit += Number(c.credit_limit);
-      e.creditUsed += Number(c.balance);
+      e.creditLimit += Number(a.credit_limit || 0);
+      e.creditUsed += Math.abs(Number(a.balance));
       instData.set(name, e);
     }
 
@@ -81,14 +77,13 @@ export async function GET() {
       institutions: Array.from(instData.values()),
       balanceHistory,
       connectedBanks: items.length,
-      // Debug: contagem de registros encontrados
       _debug: {
         items: items.length,
-        accounts: accounts.length,
+        allAccounts: allAccounts.length,
         bankAccounts: bankAccounts.length,
-        creditCards: creditCards.length,
+        creditAccounts: creditAccounts.length,
         transactions: transactions.length,
-        totalInvested,
+        accountTypes: allAccounts.map((a) => a.type),
       },
     });
   } catch (error) {

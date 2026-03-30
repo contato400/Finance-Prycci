@@ -1,7 +1,6 @@
 import { NextResponse } from "next/server";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
-import { translateInstitution } from "@/lib/institutions";
 import sql from "@/lib/db";
 
 export const dynamic = "force-dynamic";
@@ -41,7 +40,7 @@ export async function GET() {
     // Por instituição
     const byInstMap = new Map<string, number>();
     for (const inv of investments) {
-      const inst = translateInstitution(inv.institution_name);
+      const inst = inv.institution_name || "Desconhecido";
       byInstMap.set(inst, (byInstMap.get(inst) || 0) + Number(inv.balance));
     }
     const byInstitution = Array.from(byInstMap.entries())
@@ -52,7 +51,7 @@ export async function GET() {
       id: inv.id, name: inv.name,
       type: TYPE_LABELS[inv.type] || inv.type,
       balance: Number(inv.balance), quantity: Number(inv.quantity),
-      value: Number(inv.value), institution: translateInstitution(inv.institution_name),
+      value: Number(inv.value), institution: inv.institution_name || "Desconhecido",
     }));
 
     return NextResponse.json({ totalInvested, byClass, byInstitution, assets });
