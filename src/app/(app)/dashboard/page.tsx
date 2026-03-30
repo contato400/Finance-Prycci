@@ -31,6 +31,9 @@ interface DashboardData {
   }>;
   balanceHistory: Array<{ date: string; balance: number }>;
   connectedBanks: number;
+  needsSync?: boolean;
+  message?: string;
+  cachedAt?: string;
 }
 
 export default function DashboardPage() {
@@ -84,6 +87,25 @@ export default function DashboardPage() {
             </div>
           </CardContent>
         </Card>
+      )}
+
+      {/* Precisa sincronizar */}
+      {data?.needsSync && (
+        <Card className="border-emerald-800 bg-emerald-950/20">
+          <CardContent className="flex items-center gap-3 p-5">
+            <Wallet className="h-5 w-5 text-emerald-400" />
+            <p className="text-sm text-emerald-300">
+              {data.message || "Clique em Sincronizar no topo para carregar seus dados."}
+            </p>
+          </CardContent>
+        </Card>
+      )}
+
+      {/* Timestamp do cache */}
+      {data?.cachedAt && (
+        <p className="text-xs text-slate-600">
+          Dados de {new Intl.DateTimeFormat("pt-BR", { dateStyle: "short", timeStyle: "short" }).format(new Date(data.cachedAt))}
+        </p>
       )}
 
       {/* Cards de métricas — skeleton se loading, dados se prontos */}

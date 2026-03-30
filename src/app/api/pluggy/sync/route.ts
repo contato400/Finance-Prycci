@@ -116,6 +116,15 @@ export async function POST() {
 
     log(`Finalizado: ${results.itemsSynced}/${results.itemsFound} — ${results.bankAccounts} contas, ${results.creditCards} cartões, ${results.transactions} transações`);
 
+    // Construir cache do dashboard após sync
+    log("Construindo cache do dashboard...");
+    try {
+      await buildDashboardCache(log);
+      log("Cache do dashboard atualizado");
+    } catch (cacheErr) {
+      log(`Erro ao construir cache: ${cacheErr instanceof Error ? cacheErr.message : String(cacheErr)}`);
+    }
+
     return NextResponse.json({
       message: `${results.itemsSynced} de ${results.itemsFound} bancos sincronizados.`,
       synced: results.itemsSynced > 0, results,
@@ -318,4 +327,101 @@ async function syncLoans(
     }
   } catch (e) { log(`  Empréstimos indisponíveis: ${e instanceof Error ? e.message : String(e)}`); }
   return count;
+}
+
+// Constrói o cache do dashboard a partir dos dados já sincronizados no banco
+async function buildDashboardCache(log: LogFn) {
+  // 3 queries simples, sem JOIN
+  const [accountsByType, itemsList, investTotal] = await Promise.all([
+    sql`SELECT type,
+               SUM(balance)::float AS total_balance,
+               SUM(COALESCE(credit_limit, 0))::float AS total_limit,
+               COUNT(*)::int AS qty
+        FROM accounts GROUP BY type`,
+    sql`SELECT id, institution_name FROM pluggy_items`,
+    sql`SELECT COALESCE(SUM(balance), 0)::float AS total FROM investments`,
+  ]);
+
+  const num = (v: unknown) => { const n = Number(v); return isNaN(n) ? 0 : n; };
+
+  let totalBalance = 0;
+  let totalCreditUsed = 0;
+  let totalCreditLimit = 0;
+
+  for (const row of accountsByType) {
+    const isCredit = row.type === "CREDIT" || row.type === "CREDIT_CARD";
+    if (isCredit) {
+      totalCreditUsed += Math.abs(num(row.total_balance));
+      totalCreditLimit += num(row.total_limit);
+    } else {
+      totalBalance += num(row.total_balance);
+    }
+  }
+
+  const totalInvested = num(investTotal[0]?.total);
+  const netBalance = totalBalance - totalCreditUsed;
+
+  // Instituições com saldos — query separada sem JOIN
+  const accountsDetail = await sql`SELECT item_id, type, balance::float AS balance,
+    COALESCE(credit_limit, 0)::float AS credit_limit FROM accounts`;
+
+  const itemMap = new Map<string, string>();
+  for (const i of itemsList) itemMap.set(i.id, i.institution_name);
+
+  const instMap = new Map<string, { name: string; balance: number; creditLimit: number; creditUsed: number }>();
+  for (const a of accountsDetail) {
+    const name = itemMap.get(a.item_id) || "Desconhecido";
+    const e = instMap.get(name) || { name, balance: 0, creditLimit: 0, creditUsed: 0 };
+    const isCredit = a.type === "CREDIT" || a.type === "CREDIT_CARD";
+    if (isCredit) {
+      e.creditLimit += num(a.credit_limit);
+      e.creditUsed += Math.abs(num(a.balance));
+    } else {
+      e.balance += num(a.balance);
+    }
+    instMap.set(name, e);
+  }
+
+  // Gráfico de saldo (30 dias) — query agrupada
+  const thirtyDaysAgo = new Date(Date.now() - 30 * 86400000).toISOString().split("T")[0];
+  const txData = await sql`
+    SELECT date::text AS date, SUM(amount)::float AS total
+    FROM transactions WHERE date >= ${thirtyDaysAgo}
+    GROUP BY date ORDER BY date`;
+
+  const txByDay = new Map<string, number>();
+  for (const tx of txData) txByDay.set(tx.date, num(tx.total));
+
+  const balanceHistory: { date: string; balance: number }[] = [];
+  for (let i = 29; i >= 0; i--) {
+    const d = new Date(); d.setDate(d.getDate() - i);
+    const dateStr = d.toISOString().split("T")[0];
+    const dayDelta = txByDay.get(dateStr) || 0;
+    balanceHistory.push({
+      date: dateStr,
+      balance: Math.round((totalBalance - dayDelta * (i / 10)) * 100) / 100,
+    });
+  }
+
+  const cacheData = {
+    totalBalance,
+    totalCreditUsed,
+    totalCreditLimit,
+    totalInvested,
+    netBalance,
+    institutions: Array.from(instMap.values()),
+    balanceHistory,
+    connectedBanks: itemsList.length,
+  };
+
+  // Upsert na tabela de cache
+  await sql`
+    INSERT INTO dashboard_cache (id, data, updated_at)
+    VALUES (1, ${JSON.stringify(cacheData)}::jsonb, now())
+    ON CONFLICT (id) DO UPDATE SET
+      data = EXCLUDED.data,
+      updated_at = EXCLUDED.updated_at
+  `;
+
+  log(`  Cache: saldo=${totalBalance} crédito=${totalCreditUsed}/${totalCreditLimit} investido=${totalInvested} bancos=${itemsList.length}`);
 }
