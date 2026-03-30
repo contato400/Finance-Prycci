@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import { cachedJson } from "@/lib/cache";
+import { translateInstitution } from "@/lib/institutions";
 import sql from "@/lib/db";
 
 const TYPE_LABELS: Record<string, string> = {
@@ -39,7 +40,7 @@ export async function GET() {
     // Por instituição
     const byInstMap = new Map<string, number>();
     for (const inv of investments) {
-      const inst = inv.institution_name || "Desconhecido";
+      const inst = translateInstitution(inv.institution_name);
       byInstMap.set(inst, (byInstMap.get(inst) || 0) + Number(inv.balance));
     }
     const byInstitution = Array.from(byInstMap.entries())
@@ -50,7 +51,7 @@ export async function GET() {
       id: inv.id, name: inv.name,
       type: TYPE_LABELS[inv.type] || inv.type,
       balance: Number(inv.balance), quantity: Number(inv.quantity),
-      value: Number(inv.value), institution: inv.institution_name || "—",
+      value: Number(inv.value), institution: translateInstitution(inv.institution_name),
     }));
 
     return cachedJson({ totalInvested, byClass, byInstitution, assets });

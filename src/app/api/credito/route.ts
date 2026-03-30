@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import { cachedJson } from "@/lib/cache";
+import { translateInstitution } from "@/lib/institutions";
 import sql from "@/lib/db";
 
 // Retorna dados consolidados de crédito
@@ -30,7 +31,7 @@ export async function GET() {
     // Limites por banco
     const bankMap = new Map<string, { limit: number; used: number; available: number }>();
     for (const c of creditCards) {
-      const inst = c.institution_name || "Desconhecido";
+      const inst = translateInstitution(c.institution_name);
       const e = bankMap.get(inst) || { limit: 0, used: 0, available: 0 };
       e.limit += Number(c.credit_limit);
       e.used += Number(c.balance);
@@ -45,7 +46,9 @@ export async function GET() {
 
     return cachedJson({
       totalLimit, totalUsed, totalAvailable, creditCompromised,
-      limitsByBank, loans, totalLoanDebt, score: scoreRows[0] || null,
+      limitsByBank,
+      loans: loans.map((l) => ({ ...l, institution_name: translateInstitution(l.institution_name as string) })),
+      totalLoanDebt, score: scoreRows[0] || null,
     });
   } catch (error) {
     const message = error instanceof Error ? error.message : "Erro ao buscar crédito";

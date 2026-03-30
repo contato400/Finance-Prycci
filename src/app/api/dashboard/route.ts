@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import { cachedJson } from "@/lib/cache";
+import { translateInstitution } from "@/lib/institutions";
 import sql from "@/lib/db";
 
 // Cache: revalida a cada 60 segundos
@@ -51,14 +52,14 @@ export async function GET() {
     const instData = new Map<string, { name: string; balance: number; creditLimit: number; creditUsed: number }>();
 
     for (const a of bankAccounts) {
-      const name = a.institution_name || "Desconhecido";
+      const name = translateInstitution(a.institution_name);
       const e = instData.get(name) || { name, balance: 0, creditLimit: 0, creditUsed: 0 };
       e.balance += Number(a.balance);
       instData.set(name, e);
     }
 
     for (const c of creditCards) {
-      const name = c.institution_name || "Desconhecido";
+      const name = translateInstitution(c.institution_name);
       const e = instData.get(name) || { name, balance: 0, creditLimit: 0, creditUsed: 0 };
       e.creditLimit += Number(c.credit_limit);
       e.creditUsed += Number(c.balance);

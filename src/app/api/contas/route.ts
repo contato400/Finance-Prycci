@@ -2,6 +2,8 @@ import { NextResponse } from "next/server";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import { cachedJson } from "@/lib/cache";
+import { translateCategory } from "@/lib/categories";
+import { translateInstitution } from "@/lib/institutions";
 import sql from "@/lib/db";
 
 // Retorna contas com filtro, transações paginadas e gastos por categoria
@@ -32,7 +34,7 @@ export async function GET(request: Request) {
 
     const enriched = accounts.map((a) => ({
       ...a,
-      pluggy_items: { institution_name: a.institution_name },
+      pluggy_items: { institution_name: translateInstitution(a.institution_name) },
     }));
 
     // Transações paginadas
@@ -50,10 +52,11 @@ export async function GET(request: Request) {
       totalTransactions = Number(total);
 
       const offset = (page - 1) * pageSize;
-      transactions = await sql`
+      const rawTx = await sql`
         SELECT * FROM transactions
         WHERE account_id = ${accountId}::uuid AND date >= ${fromDate}
         ORDER BY date DESC LIMIT ${pageSize} OFFSET ${offset}`;
+      transactions = rawTx.map((tx) => ({ ...tx, category: translateCategory(tx.category) }));
     }
 
     // Gastos por categoria (últimos 30 dias, débitos)
@@ -70,7 +73,7 @@ export async function GET(request: Request) {
         WHERE account_id = ANY(${accountIds}::uuid[]) AND type = 'DEBIT' AND date >= ${fromDate30}
         GROUP BY COALESCE(category, 'Sem categoria')
         ORDER BY total DESC LIMIT 10`;
-      categoryData = catRows.map((r) => ({ category: r.category, total: Number(r.total) }));
+      categoryData = catRows.map((r) => ({ category: translateCategory(r.category), total: Number(r.total) }));
     }
 
     return cachedJson({

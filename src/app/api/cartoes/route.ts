@@ -2,6 +2,8 @@ import { NextResponse } from "next/server";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import { cachedJson } from "@/lib/cache";
+import { translateCategory } from "@/lib/categories";
+import { translateInstitution } from "@/lib/institutions";
 import sql from "@/lib/db";
 
 // Retorna cartões de crédito com transações e métricas
@@ -25,7 +27,7 @@ export async function GET(request: Request) {
 
     const enrichedCards = cards.map((c) => ({
       ...c,
-      accounts: { pluggy_items: { institution_name: c.institution_name } },
+      accounts: { pluggy_items: { institution_name: translateInstitution(c.institution_name) } },
     }));
 
     // Transações do cartão selecionado
@@ -35,11 +37,12 @@ export async function GET(request: Request) {
       if (card) {
         const thirtyDaysAgo = new Date();
         thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
-        transactions = await sql`
+        const rawTx = await sql`
           SELECT * FROM transactions
           WHERE account_id = ${card.account_id}::uuid
             AND date >= ${thirtyDaysAgo.toISOString().split("T")[0]}
           ORDER BY date DESC LIMIT 30`;
+        transactions = rawTx.map((tx) => ({ ...tx, category: translateCategory(tx.category) }));
       }
     }
 
