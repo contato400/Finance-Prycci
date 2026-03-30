@@ -39,7 +39,8 @@ export default function DashboardPage() {
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    fetch("/api/dashboard")
+    const controller = new AbortController();
+    fetch("/api/dashboard", { signal: controller.signal })
       .then(async (res) => {
         const json = await res.json();
         if (!res.ok || json.error) {
@@ -48,32 +49,18 @@ export default function DashboardPage() {
         }
         setData(json);
       })
-      .catch((err) => setError(err.message || "Erro de rede"))
+      .catch((err) => {
+        if (err.name !== "AbortError") setError(err.message || "Erro de rede");
+      })
       .finally(() => setLoading(false));
+    return () => controller.abort();
   }, []);
 
-  if (loading) return <DashboardSkeleton />;
-
-  if (error) {
-    return (
-      <div className="space-y-6">
-        <div>
-          <h1 className="text-2xl font-bold text-white">Dashboard</h1>
-        </div>
-        <Card className="border-red-800 bg-red-950/30">
-          <CardContent className="flex items-center gap-3 p-5">
-            <AlertCircle className="h-5 w-5 text-red-400" />
-            <div>
-              <p className="text-sm font-medium text-red-300">Erro ao carregar dashboard</p>
-              <p className="text-xs text-red-400">{error}</p>
-            </div>
-          </CardContent>
-        </Card>
-      </div>
-    );
-  }
-
-  const creditPercent = data ? calcPercentage(data.totalCreditUsed, data.totalCreditLimit) : 0;
+  // Métricas disponíveis mesmo durante loading parcial
+  const totalBalance = data?.totalBalance ?? 0;
+  const totalCreditUsed = data?.totalCreditUsed ?? 0;
+  const totalCreditLimit = data?.totalCreditLimit ?? 0;
+  const creditPercent = calcPercentage(totalCreditUsed, totalCreditLimit);
 
   return (
     <div className="space-y-6">
@@ -86,53 +73,70 @@ export default function DashboardPage() {
         <PluggyWidget />
       </div>
 
-      {/* Cards de métricas */}
-      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-        <MetricCard
-          title="Saldo em Contas"
-          value={formatCurrency(data?.totalBalance ?? 0)}
-          icon={<Wallet className="h-5 w-5 text-emerald-500" />}
-        />
-        <Card className="border-slate-800 bg-slate-900">
-          <CardHeader className="flex flex-row items-center justify-between pb-2">
-            <CardTitle className="text-sm font-medium text-slate-400">
-              Crédito Utilizado
-            </CardTitle>
-            <CreditCard className="h-5 w-5 text-slate-400" />
-          </CardHeader>
-          <CardContent>
-            <div className="text-2xl font-bold text-white">
-              {formatCurrency(data?.totalCreditUsed ?? 0)}
+      {/* Erro */}
+      {error && (
+        <Card className="border-red-800 bg-red-950/30">
+          <CardContent className="flex items-center gap-3 p-5">
+            <AlertCircle className="h-5 w-5 shrink-0 text-red-400" />
+            <div className="min-w-0">
+              <p className="text-sm font-medium text-red-300">Erro ao carregar</p>
+              <p className="truncate text-xs text-red-400">{error}</p>
             </div>
-            <p className="mt-1 text-xs text-slate-500">
-              de {formatCurrency(data?.totalCreditLimit ?? 0)} limite
-            </p>
-            <Progress
-              value={creditPercent}
-              className={`mt-3 h-2 ${
-                creditPercent > 70
-                  ? "[&>div]:bg-red-500"
-                  : creditPercent > 50
-                    ? "[&>div]:bg-yellow-500"
-                    : "[&>div]:bg-emerald-500"
-              }`}
-            />
-            <p className={`mt-1 text-xs ${creditPercent > 70 ? "text-red-400" : "text-slate-500"}`}>
-              {creditPercent}% utilizado
-            </p>
           </CardContent>
         </Card>
-        <MetricCard
-          title="Total Investido"
-          value={formatCurrency(data?.totalInvested ?? 0)}
-          icon={<TrendingUp className="h-5 w-5 text-blue-500" />}
-        />
-        <MetricCard
-          title="Saldo Líquido"
-          value={formatCurrency(data?.netBalance ?? 0)}
-          icon={<DollarSign className="h-5 w-5 text-emerald-500" />}
-          valueColor={(data?.netBalance ?? 0) >= 0 ? "text-emerald-400" : "text-red-400"}
-        />
+      )}
+
+      {/* Cards de métricas — skeleton se loading, dados se prontos */}
+      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+        {loading ? (
+          Array.from({ length: 4 }).map((_, i) => (
+            <Skeleton key={i} className="h-32 rounded-lg" />
+          ))
+        ) : (
+          <>
+            <MetricCard
+              title="Saldo em Contas"
+              value={formatCurrency(totalBalance)}
+              icon={<Wallet className="h-5 w-5 text-emerald-500" />}
+            />
+            <Card className="border-slate-800 bg-slate-900">
+              <CardHeader className="flex flex-row items-center justify-between pb-2">
+                <CardTitle className="text-sm font-medium text-slate-400">Crédito Utilizado</CardTitle>
+                <CreditCard className="h-5 w-5 text-slate-400" />
+              </CardHeader>
+              <CardContent>
+                <div className="text-2xl font-bold text-white">
+                  {formatCurrency(totalCreditUsed)}
+                </div>
+                <p className="mt-1 text-xs text-slate-500">
+                  de {formatCurrency(totalCreditLimit)} limite
+                </p>
+                <Progress
+                  value={creditPercent}
+                  className={`mt-3 h-2 ${
+                    creditPercent > 70 ? "[&>div]:bg-red-500"
+                      : creditPercent > 50 ? "[&>div]:bg-yellow-500"
+                        : "[&>div]:bg-emerald-500"
+                  }`}
+                />
+                <p className={`mt-1 text-xs ${creditPercent > 70 ? "text-red-400" : "text-slate-500"}`}>
+                  {creditPercent}% utilizado
+                </p>
+              </CardContent>
+            </Card>
+            <MetricCard
+              title="Total Investido"
+              value={formatCurrency(data?.totalInvested ?? 0)}
+              icon={<TrendingUp className="h-5 w-5 text-blue-500" />}
+            />
+            <MetricCard
+              title="Saldo Líquido"
+              value={formatCurrency(data?.netBalance ?? 0)}
+              icon={<DollarSign className="h-5 w-5 text-emerald-500" />}
+              valueColor={(data?.netBalance ?? 0) >= 0 ? "text-emerald-400" : "text-red-400"}
+            />
+          </>
+        )}
       </div>
 
       {/* Bancos conectados */}
@@ -140,11 +144,19 @@ export default function DashboardPage() {
         <div className="mb-4 flex items-center gap-2">
           <Building2 className="h-5 w-5 text-slate-400" />
           <h2 className="text-lg font-semibold text-white">Bancos Conectados</h2>
-          <span className="rounded-full bg-slate-800 px-2 py-0.5 text-xs text-slate-400">
-            {data?.connectedBanks ?? 0}
-          </span>
+          {!loading && (
+            <span className="rounded-full bg-slate-800 px-2 py-0.5 text-xs text-slate-400">
+              {data?.connectedBanks ?? 0}
+            </span>
+          )}
         </div>
-        {data?.institutions && data.institutions.length > 0 ? (
+        {loading ? (
+          <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+            {Array.from({ length: 3 }).map((_, i) => (
+              <Skeleton key={i} className="h-40 rounded-lg" />
+            ))}
+          </div>
+        ) : data?.institutions && data.institutions.length > 0 ? (
           <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
             {data.institutions.map((inst) => (
               <InstitutionCard key={inst.name} institution={inst} />
@@ -162,13 +174,15 @@ export default function DashboardPage() {
         )}
       </div>
 
-      {/* Gráfico de evolução de saldo */}
+      {/* Gráfico */}
       <Card className="border-slate-800 bg-slate-900">
         <CardHeader>
           <CardTitle className="text-white">Evolução do Saldo — Últimos 30 dias</CardTitle>
         </CardHeader>
         <CardContent>
-          {data?.balanceHistory && data.balanceHistory.length > 0 ? (
+          {loading ? (
+            <Skeleton className="h-72 w-full rounded" />
+          ) : data?.balanceHistory && data.balanceHistory.length > 0 ? (
             <BalanceChart data={data.balanceHistory} />
           ) : (
             <div className="flex h-64 items-center justify-center">
@@ -196,26 +210,5 @@ function MetricCard({
         <div className={`text-2xl font-bold ${valueColor}`}>{value}</div>
       </CardContent>
     </Card>
-  );
-}
-
-function DashboardSkeleton() {
-  return (
-    <div className="space-y-6">
-      <div className="flex items-center justify-between">
-        <div>
-          <Skeleton className="h-8 w-40" />
-          <Skeleton className="mt-2 h-4 w-60" />
-        </div>
-        <Skeleton className="h-10 w-36" />
-      </div>
-      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-        {Array.from({ length: 4 }).map((_, i) => (
-          <Skeleton key={i} className="h-32 rounded-lg" />
-        ))}
-      </div>
-      <Skeleton className="h-48 rounded-lg" />
-      <Skeleton className="h-80 rounded-lg" />
-    </div>
   );
 }

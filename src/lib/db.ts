@@ -1,23 +1,21 @@
 import postgres from "postgres";
 
-// Conexão direta ao PostgreSQL do Supabase via Transaction Pooler.
-// Usa o pacote 'postgres' (porsager/postgres) com connection string.
-// Em serverless (Vercel), cada invocação cria uma conexão via pool.
-
 const connectionString = (process.env.DATABASE_URL || "").trim();
 
 if (!connectionString) {
-  console.warn("[db] DATABASE_URL não configurada. Queries vão falhar.");
+  console.warn("[db] DATABASE_URL não configurada.");
 }
 
-const sql = postgres(connectionString, {
-  // Serverless: sem idle connections persistentes
+// Adicionar statement_timeout na connection string para limitar queries a 8s
+const urlWithTimeout = connectionString
+  ? connectionString + (connectionString.includes("?") ? "&" : "?") + "options=-c%20statement_timeout%3D8000"
+  : "";
+
+const sql = postgres(urlWithTimeout, {
   max: 1,
   idle_timeout: 20,
-  connect_timeout: 10,
-  // SSL obrigatório para Supabase
+  connect_timeout: 8,
   ssl: "require",
-  // Não preparar statements (incompatível com transaction pooler)
   prepare: false,
 });
 
