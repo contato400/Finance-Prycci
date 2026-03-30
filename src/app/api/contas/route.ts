@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
+import { cachedJson } from "@/lib/cache";
 import sql from "@/lib/db";
 
 // Retorna contas com filtro, transações paginadas e gastos por categoria
@@ -72,7 +73,7 @@ export async function GET(request: Request) {
       categoryData = catRows.map((r) => ({ category: r.category, total: Number(r.total) }));
     }
 
-    return NextResponse.json({
+    return cachedJson({
       accounts: enriched, transactions, totalTransactions,
       page, pageSize, totalPages: Math.ceil(totalTransactions / pageSize), categoryData,
     });

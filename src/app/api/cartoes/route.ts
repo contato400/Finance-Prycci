@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
+import { cachedJson } from "@/lib/cache";
 import sql from "@/lib/db";
 
 // Retorna cartões de crédito com transações e métricas
@@ -46,7 +47,7 @@ export async function GET(request: Request) {
     const totalLimit = cards.reduce((s, c) => s + Number(c.credit_limit), 0);
     const totalAvailable = cards.reduce((s, c) => s + Number(c.available_limit), 0);
 
-    return NextResponse.json({ cards: enrichedCards, transactions, totalUsed, totalLimit, totalAvailable });
+    return cachedJson({ cards: enrichedCards, transactions, totalUsed, totalLimit, totalAvailable });
   } catch (error) {
     const message = error instanceof Error ? error.message : "Erro ao buscar cartões";
     return NextResponse.json({ error: message }, { status: 500 });

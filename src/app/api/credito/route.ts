@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
+import { cachedJson } from "@/lib/cache";
 import sql from "@/lib/db";
 
 // Retorna dados consolidados de crédito
@@ -42,7 +43,7 @@ export async function GET() {
 
     const totalLoanDebt = loans.reduce((s, l) => s + Number(l.outstanding_balance || 0), 0);
 
-    return NextResponse.json({
+    return cachedJson({
       totalLimit, totalUsed, totalAvailable, creditCompromised,
       limitsByBank, loans, totalLoanDebt, score: scoreRows[0] || null,
     });

@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
+import { cachedJson } from "@/lib/cache";
 import sql from "@/lib/db";
 
 const TYPE_LABELS: Record<string, string> = {
@@ -52,7 +53,7 @@ export async function GET() {
       value: Number(inv.value), institution: inv.institution_name || "—",
     }));
 
-    return NextResponse.json({ totalInvested, byClass, byInstitution, assets });
+    return cachedJson({ totalInvested, byClass, byInstitution, assets });
   } catch (error) {
     const message = error instanceof Error ? error.message : "Erro ao buscar investimentos";
     return NextResponse.json({ error: message }, { status: 500 });
