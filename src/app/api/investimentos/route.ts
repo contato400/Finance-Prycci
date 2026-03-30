@@ -19,19 +19,22 @@ export async function GET() {
     }
 
     const investments = await sql`
-      SELECT i.*, p.institution_name
+      SELECT i.*, i.balance::float as balance,
+             COALESCE(i.quantity, 0)::float as quantity,
+             COALESCE(i.value, 0)::float as value,
+             p.institution_name
       FROM investments i
       JOIN pluggy_items p ON i.item_id = p.id
       ORDER BY i.balance DESC
     `;
 
-    const totalInvested = investments.reduce((s, i) => s + Number(i.balance), 0);
+    const totalInvested = investments.reduce((s, i) => s + (Number(i.balance) || 0), 0);
 
     // Por classe
     const byClassMap = new Map<string, number>();
     for (const inv of investments) {
       const label = TYPE_LABELS[inv.type] || inv.type;
-      byClassMap.set(label, (byClassMap.get(label) || 0) + Number(inv.balance));
+      byClassMap.set(label, (byClassMap.get(label) || 0) + (Number(inv.balance) || 0));
     }
     const byClass = Array.from(byClassMap.entries())
       .map(([type, total]) => ({ type, total }))
@@ -41,7 +44,7 @@ export async function GET() {
     const byInstMap = new Map<string, number>();
     for (const inv of investments) {
       const inst = inv.institution_name || "Desconhecido";
-      byInstMap.set(inst, (byInstMap.get(inst) || 0) + Number(inv.balance));
+      byInstMap.set(inst, (byInstMap.get(inst) || 0) + (Number(inv.balance) || 0));
     }
     const byInstitution = Array.from(byInstMap.entries())
       .map(([institution, total]) => ({ institution, total }))
@@ -50,8 +53,8 @@ export async function GET() {
     const assets = investments.map((inv) => ({
       id: inv.id, name: inv.name,
       type: TYPE_LABELS[inv.type] || inv.type,
-      balance: Number(inv.balance), quantity: Number(inv.quantity),
-      value: Number(inv.value), institution: inv.institution_name || "Desconhecido",
+      balance: Number(inv.balance) || 0, quantity: Number(inv.quantity) || 0,
+      value: Number(inv.value) || 0, institution: inv.institution_name || "Desconhecido",
     }));
 
     return NextResponse.json({ totalInvested, byClass, byInstitution, assets });

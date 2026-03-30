@@ -6,7 +6,7 @@ import sql from "@/lib/db";
 
 export const dynamic = "force-dynamic";
 
-// Retorna contas bancárias (não cartões de crédito), transações e gastos por categoria
+// Retorna contas bancárias (excluindo cartões), transações e categorias
 export async function GET(request: Request) {
   try {
     const session = await getServerSession(authOptions);
@@ -20,18 +20,16 @@ export async function GET(request: Request) {
     const page = parseInt(searchParams.get("page") || "1");
     const pageSize = 20;
 
-    // Buscar contas — filtro exclui cartões de crédito por padrão
-    // Se typeFilter = "ALL", mostra tudo exceto CREDIT
-    // Se typeFilter é específico (CHECKING_ACCOUNT, SAVINGS_ACCOUNT), filtra
+    // Contas bancárias — exclui CREDIT/CREDIT_CARD (esses vão para /cartoes)
     const accounts = typeFilter
       ? await sql`
-          SELECT a.*, p.institution_name FROM accounts a
-          JOIN pluggy_items p ON a.item_id = p.id
+          SELECT a.*, a.balance::float as balance, p.institution_name
+          FROM accounts a JOIN pluggy_items p ON a.item_id = p.id
           WHERE a.type = ${typeFilter}
           ORDER BY a.updated_at DESC`
       : await sql`
-          SELECT a.*, p.institution_name FROM accounts a
-          JOIN pluggy_items p ON a.item_id = p.id
+          SELECT a.*, a.balance::float as balance, p.institution_name
+          FROM accounts a JOIN pluggy_items p ON a.item_id = p.id
           WHERE a.type NOT IN ('CREDIT', 'CREDIT_CARD')
           ORDER BY a.updated_at DESC`;
 
@@ -50,13 +48,13 @@ export async function GET(request: Request) {
       const fromDate = thirtyDaysAgo.toISOString().split("T")[0];
 
       const [{ total }] = await sql`
-        SELECT count(*) as total FROM transactions
+        SELECT count(*)::int as total FROM transactions
         WHERE account_id = ${accountId}::uuid AND date >= ${fromDate}`;
-      totalTransactions = Number(total);
+      totalTransactions = Number(total) || 0;
 
       const offset = (page - 1) * pageSize;
       const rawTx = await sql`
-        SELECT * FROM transactions
+        SELECT *, amount::float as amount FROM transactions
         WHERE account_id = ${accountId}::uuid AND date >= ${fromDate}
         ORDER BY date DESC LIMIT ${pageSize} OFFSET ${offset}`;
       transactions = rawTx.map((tx) => ({ ...tx, category: translateCategory(tx.category) }));
@@ -71,12 +69,16 @@ export async function GET(request: Request) {
     let categoryData: Array<{ category: string; total: number }> = [];
     if (accountIds.length > 0) {
       const catRows = await sql`
-        SELECT COALESCE(category, 'Sem categoria') as category, SUM(ABS(amount)) as total
+        SELECT COALESCE(category, 'Sem categoria') as category,
+               SUM(ABS(amount))::float as total
         FROM transactions
         WHERE account_id = ANY(${accountIds}::uuid[]) AND type = 'DEBIT' AND date >= ${fromDate30}
         GROUP BY COALESCE(category, 'Sem categoria')
         ORDER BY total DESC LIMIT 10`;
-      categoryData = catRows.map((r) => ({ category: translateCategory(r.category), total: Number(r.total) }));
+      categoryData = catRows.map((r) => ({
+        category: translateCategory(r.category),
+        total: Number(r.total) || 0,
+      }));
     }
 
     return NextResponse.json({

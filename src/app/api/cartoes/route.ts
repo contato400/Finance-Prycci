@@ -6,8 +6,13 @@ import sql from "@/lib/db";
 
 export const dynamic = "force-dynamic";
 
-// Retorna cartões de crédito — busca diretamente de accounts type=CREDIT
-// (a tabela credit_cards pode estar vazia se o sync não populou)
+function num(v: unknown): number {
+  if (v === null || v === undefined) return 0;
+  const n = Number(v);
+  return isNaN(n) ? 0 : n;
+}
+
+// Retorna cartões de crédito — busca de accounts type=CREDIT
 export async function GET(request: Request) {
   try {
     const session = await getServerSession(authOptions);
@@ -18,27 +23,25 @@ export async function GET(request: Request) {
     const { searchParams } = new URL(request.url);
     const cardId = searchParams.get("cardId");
 
-    // Buscar contas de crédito (cartões) direto da tabela accounts
     const cards = await sql`
-      SELECT a.id, a.pluggy_account_id, a.name, a.type, a.balance,
-             a.credit_limit, a.currency, a.updated_at,
-             p.institution_name
+      SELECT a.id, a.pluggy_account_id, a.name, a.type,
+             a.balance::float as balance,
+             COALESCE(a.credit_limit, 0)::float as credit_limit,
+             a.updated_at, p.institution_name
       FROM accounts a
       JOIN pluggy_items p ON a.item_id = p.id
       WHERE a.type IN ('CREDIT', 'CREDIT_CARD')
       ORDER BY a.updated_at DESC`;
 
-    // Mapear para o formato esperado pelo frontend
     const enrichedCards = cards.map((c) => {
-      const usedBalance = Math.abs(Number(c.balance));
-      const creditLimit = Number(c.credit_limit || 0);
+      const usedBalance = Math.abs(num(c.balance));
+      const creditLimit = num(c.credit_limit);
       const availableLimit = Math.max(creditLimit - usedBalance, 0);
-      // Extrair últimos 4 dígitos do nome ou pluggy_account_id
       const last4 = c.pluggy_account_id?.slice(-4) || "****";
 
       return {
         id: c.id,
-        account_id: c.id, // Para buscar transações
+        account_id: c.id,
         name: `${c.institution_name || ""} ${c.name || ""}`.trim(),
         last4,
         balance: usedBalance,
@@ -49,13 +52,12 @@ export async function GET(request: Request) {
       };
     });
 
-    // Transações do cartão selecionado
     let transactions = null;
     if (cardId) {
       const thirtyDaysAgo = new Date();
       thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
       const rawTx = await sql`
-        SELECT * FROM transactions
+        SELECT *, amount::float as amount FROM transactions
         WHERE account_id = ${cardId}::uuid
           AND date >= ${thirtyDaysAgo.toISOString().split("T")[0]}
         ORDER BY date DESC LIMIT 30`;
