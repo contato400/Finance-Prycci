@@ -27,7 +27,6 @@ export async function POST() {
 
     log("Iniciando sincronização...");
 
-    // 1. Testar DB
     log("Testando PostgreSQL...");
     try {
       const [{ total }] = await sql`SELECT count(*) as total FROM pluggy_items`;
@@ -38,7 +37,6 @@ export async function POST() {
       return NextResponse.json({ error: `DB: ${msg}`, logs }, { status: 500 });
     }
 
-    // 2. Buscar items do banco
     const savedItems = await sql<{ id: string; item_id: string; institution_name: string }[]>`
       SELECT id, item_id, institution_name FROM pluggy_items ORDER BY created_at DESC
     `;
@@ -53,9 +51,12 @@ export async function POST() {
 
     log(`${savedItems.length} item(s) encontrado(s)`);
 
-    // 3. Sincronizar
     const pluggy = createPluggyClient();
-    const results = { itemsFound: savedItems.length, itemsSynced: 0, accounts: 0, transactions: 0, creditCards: 0, investments: 0, loans: 0 };
+    const results = {
+      itemsFound: savedItems.length, itemsSynced: 0,
+      bankAccounts: 0, creditAccounts: 0, creditCards: 0,
+      transactions: 0, investments: 0, loans: 0,
+    };
     const itemErrors: Array<{ itemId: string; institution: string; error: string }> = [];
 
     for (const dbItem of savedItems) {
@@ -69,15 +70,21 @@ export async function POST() {
           WHERE id = ${dbItem.id}::uuid
         `;
 
-        const acct = await syncAccounts(pluggy, dbItem, item.connector.name, log);
-        results.accounts += acct.accounts;
-        results.creditCards += acct.creditCards;
+        // Sincronizar contas (BANK + CREDIT)
+        const acctResult = await syncAccounts(pluggy, dbItem, item.connector.name, log);
+        results.bankAccounts += acctResult.bankAccounts;
+        results.creditAccounts += acctResult.creditAccounts;
+        results.creditCards += acctResult.creditCards;
+
+        // Sincronizar transações de TODAS as contas (bank + credit)
         results.transactions += await syncTransactions(pluggy, dbItem, log);
+
+        // Investimentos e empréstimos
         results.investments += await syncInvestments(pluggy, dbItem, log);
         results.loans += await syncLoans(pluggy, dbItem, item.connector.name, log);
 
         results.itemsSynced++;
-        log(`  ${dbItem.institution_name} OK`);
+        log(`  RESUMO ${dbItem.institution_name}: ${acctResult.bankAccounts} contas banco, ${acctResult.creditAccounts} contas crédito, ${acctResult.creditCards} cartões`);
       } catch (err) {
         const msg = err instanceof Error ? err.message : String(err);
         log(`  ERRO ${dbItem.institution_name}: ${msg}`);
@@ -85,7 +92,7 @@ export async function POST() {
       }
     }
 
-    log(`Finalizado: ${results.itemsSynced}/${results.itemsFound}`);
+    log(`Finalizado: ${results.itemsSynced}/${results.itemsFound} — ${results.bankAccounts} contas, ${results.creditCards} cartões, ${results.transactions} transações`);
 
     return NextResponse.json({
       message: `${results.itemsSynced} de ${results.itemsFound} bancos sincronizados.`,
@@ -99,56 +106,109 @@ export async function POST() {
   }
 }
 
+// Sincroniza TODAS as contas: tipo BANK (corrente/poupança) + tipo CREDIT (cartões)
 async function syncAccounts(
   pluggy: Pluggy, dbItem: { id: string; item_id: string },
   institutionName: string, log: LogFn
 ) {
-  let accountCount = 0, creditCardCount = 0;
+  let bankAccounts = 0, creditAccounts = 0, creditCards = 0;
 
+  // Buscar TODAS as contas (sem filtro de tipo)
   const { results: accounts } = await pluggy.fetchAccounts(dbItem.item_id);
-  log(`  ${accounts.length} contas`);
+  log(`  Pluggy retornou ${accounts.length} contas`);
 
   for (const account of accounts) {
     try {
+      // Logar dados brutos para debug
+      log(`  Conta: type=${account.type} subtype=${account.subtype} name="${account.name}" balance=${account.balance} number=${account.number || "—"}`);
+      if (account.creditData) {
+        log(`    creditData: creditLimit=${account.creditData.creditLimit} availableCreditLimit=${account.creditData.availableCreditLimit} brand=${account.creditData.brand}`);
+      }
+
+      // Determinar o balance correto:
+      // - BANK: usar account.balance diretamente
+      // - CREDIT: balance é o valor da fatura (geralmente negativo = deve), usar valor absoluto
+      const isCreditAccount = account.type === "CREDIT";
+      const balance = account.balance;
+      const creditLimit = account.creditData?.creditLimit || 0;
+
+      // Salvar conta no banco
       const [upserted] = await sql`
         INSERT INTO accounts (item_id, pluggy_account_id, name, type, balance, credit_limit, currency, updated_at)
-        VALUES (${dbItem.id}::uuid, ${account.id}, ${account.name}, ${account.subtype || account.type},
-                ${account.balance}, ${account.creditData?.creditLimit || 0}, ${account.currencyCode}, now())
+        VALUES (
+          ${dbItem.id}::uuid,
+          ${account.id},
+          ${account.name},
+          ${account.subtype || account.type},
+          ${balance},
+          ${creditLimit},
+          ${account.currencyCode},
+          now()
+        )
         ON CONFLICT (pluggy_account_id) DO UPDATE SET
           name = EXCLUDED.name, type = EXCLUDED.type, balance = EXCLUDED.balance,
           credit_limit = EXCLUDED.credit_limit, currency = EXCLUDED.currency, updated_at = now()
         RETURNING id
       `;
-      accountCount++;
 
-      if (account.type === "CREDIT" && account.creditData && upserted) {
+      if (isCreditAccount) {
+        creditAccounts++;
+      } else {
+        bankAccounts++;
+      }
+
+      // Se é conta de crédito, criar/atualizar registro na tabela credit_cards
+      if (isCreditAccount && upserted) {
         const cd = account.creditData;
+        // Saldo usado do cartão: valor absoluto do balance da conta de crédito
+        const usedBalance = Math.abs(balance);
+        const cardCreditLimit = cd?.creditLimit || 0;
+        const availableLimit = cd?.availableCreditLimit || 0;
+        const brand = cd?.brand || "";
+        const last4 = account.number?.slice(-4) || "****";
+        const cardName = `${institutionName} ${brand}`.trim();
+
+        log(`    Cartão: ${cardName} final ${last4} — usado=${usedBalance} limite=${cardCreditLimit} disponível=${availableLimit}`);
+
         await sql`
           INSERT INTO credit_cards (account_id, name, last4, balance, credit_limit, available_limit, updated_at)
-          VALUES (${upserted.id}::uuid, ${`${institutionName} ${cd.brand || ""}`.trim()},
-                  ${account.number?.slice(-4) || "****"}, ${Math.abs(account.balance)},
-                  ${cd.creditLimit || 0}, ${cd.availableCreditLimit || 0}, now())
+          VALUES (
+            ${upserted.id}::uuid,
+            ${cardName},
+            ${last4},
+            ${usedBalance},
+            ${cardCreditLimit},
+            ${availableLimit},
+            now()
+          )
           ON CONFLICT (account_id) DO UPDATE SET
             name = EXCLUDED.name, last4 = EXCLUDED.last4, balance = EXCLUDED.balance,
             credit_limit = EXCLUDED.credit_limit, available_limit = EXCLUDED.available_limit, updated_at = now()
         `;
-        creditCardCount++;
+        creditCards++;
       }
     } catch (e) {
       log(`  Erro conta ${account.id}: ${e instanceof Error ? e.message : String(e)}`);
     }
   }
 
-  return { accounts: accountCount, creditCards: creditCardCount };
+  return { bankAccounts, creditAccounts, creditCards };
 }
 
+// Sincroniza transações de TODAS as contas (BANK + CREDIT)
 async function syncTransactions(pluggy: Pluggy, dbItem: { id: string; item_id: string }, log: LogFn) {
-  let count = 0;
+  let totalCount = 0;
 
-  const dbAccounts = await sql<{ id: string; pluggy_account_id: string }[]>`
-    SELECT id, pluggy_account_id FROM accounts WHERE item_id = ${dbItem.id}::uuid
+  // Buscar TODAS as contas deste item no DB (incluindo cartões de crédito)
+  const dbAccounts = await sql<{ id: string; pluggy_account_id: string; type: string }[]>`
+    SELECT id, pluggy_account_id, type FROM accounts WHERE item_id = ${dbItem.id}::uuid
   `;
-  if (!dbAccounts.length) return 0;
+  if (!dbAccounts.length) {
+    log("  Nenhuma conta no DB para buscar transações");
+    return 0;
+  }
+
+  log(`  Buscando transações de ${dbAccounts.length} contas (${dbAccounts.map((a) => a.type).join(", ")})...`);
 
   const fromDate = new Date();
   fromDate.setDate(fromDate.getDate() - 90);
@@ -157,39 +217,37 @@ async function syncTransactions(pluggy: Pluggy, dbItem: { id: string; item_id: s
   for (const acct of dbAccounts) {
     try {
       const txs = await pluggy.fetchAllTransactions(acct.pluggy_account_id, { from });
-      log(`  ${txs.length} transações (${acct.pluggy_account_id.substring(0, 8)}...)`);
+      log(`  ${txs.length} transações da conta ${acct.type} (${acct.pluggy_account_id.substring(0, 8)}...)`);
 
-      // Inserir em lotes de 500
-      for (let i = 0; i < txs.length; i += 500) {
-        const chunk = txs.slice(i, i + 500);
-        const values = chunk.map((tx: PluggyTransaction) => ({
-          account_id: acct.id,
-          pluggy_transaction_id: tx.id,
-          description: tx.description,
-          amount: tx.amount,
-          date: typeof tx.date === "string" ? tx.date : new Date(tx.date).toISOString().split("T")[0],
-          category: tx.category || null,
-          type: tx.type,
-        }));
+      if (txs.length === 0) continue;
 
-        // Usar INSERT ... VALUES com unnest para batch
-        for (const v of values) {
-          await sql`
-            INSERT INTO transactions (account_id, pluggy_transaction_id, description, amount, date, category, type)
-            VALUES (${v.account_id}::uuid, ${v.pluggy_transaction_id}, ${v.description},
-                    ${v.amount}, ${v.date}, ${v.category}, ${v.type})
-            ON CONFLICT (pluggy_transaction_id) DO UPDATE SET
-              description = EXCLUDED.description, amount = EXCLUDED.amount,
-              date = EXCLUDED.date, category = EXCLUDED.category, type = EXCLUDED.type
-          `;
-        }
+      // Inserir uma a uma (seguro para transaction pooler sem prepare)
+      for (const tx of txs as PluggyTransaction[]) {
+        const txDate = typeof tx.date === "string" ? tx.date : new Date(tx.date).toISOString().split("T")[0];
+        await sql`
+          INSERT INTO transactions (account_id, pluggy_transaction_id, description, amount, date, category, type)
+          VALUES (
+            ${acct.id}::uuid,
+            ${tx.id},
+            ${tx.description},
+            ${tx.amount},
+            ${txDate},
+            ${tx.category || null},
+            ${tx.type}
+          )
+          ON CONFLICT (pluggy_transaction_id) DO UPDATE SET
+            description = EXCLUDED.description, amount = EXCLUDED.amount,
+            date = EXCLUDED.date, category = EXCLUDED.category, type = EXCLUDED.type
+        `;
       }
-      count += txs.length;
+      totalCount += txs.length;
     } catch (e) {
-      log(`  Erro tx ${acct.pluggy_account_id}: ${e instanceof Error ? e.message : String(e)}`);
+      log(`  Erro tx conta ${acct.type} ${acct.pluggy_account_id}: ${e instanceof Error ? e.message : String(e)}`);
     }
   }
-  return count;
+
+  log(`  Total transações sincronizadas: ${totalCount}`);
+  return totalCount;
 }
 
 async function syncInvestments(pluggy: Pluggy, dbItem: { id: string; item_id: string }, log: LogFn) {
