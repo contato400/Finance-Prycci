@@ -4,7 +4,7 @@ import { authOptions } from "@/lib/auth";
 import { translateCategory } from "@/lib/categories";
 import sql from "@/lib/db";
 
-export const dynamic = "force-dynamic";
+export const revalidate = 30;
 
 // Retorna contas bancárias (excluindo cartões), transações e categorias
 export async function GET(request: Request) {

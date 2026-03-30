@@ -14,6 +14,7 @@ import {
   TrendingUp,
   DollarSign,
   Building2,
+  AlertCircle,
 } from "lucide-react";
 
 interface DashboardData {
@@ -35,16 +36,42 @@ interface DashboardData {
 export default function DashboardPage() {
   const [data, setData] = useState<DashboardData | null>(null);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
     fetch("/api/dashboard")
-      .then((res) => res.json())
-      .then(setData)
-      .catch(() => {})
+      .then(async (res) => {
+        const json = await res.json();
+        if (!res.ok || json.error) {
+          setError(json.error || `Erro ${res.status}`);
+          return;
+        }
+        setData(json);
+      })
+      .catch((err) => setError(err.message || "Erro de rede"))
       .finally(() => setLoading(false));
   }, []);
 
   if (loading) return <DashboardSkeleton />;
+
+  if (error) {
+    return (
+      <div className="space-y-6">
+        <div>
+          <h1 className="text-2xl font-bold text-white">Dashboard</h1>
+        </div>
+        <Card className="border-red-800 bg-red-950/30">
+          <CardContent className="flex items-center gap-3 p-5">
+            <AlertCircle className="h-5 w-5 text-red-400" />
+            <div>
+              <p className="text-sm font-medium text-red-300">Erro ao carregar dashboard</p>
+              <p className="text-xs text-red-400">{error}</p>
+            </div>
+          </CardContent>
+        </Card>
+      </div>
+    );
+  }
 
   const creditPercent = data ? calcPercentage(data.totalCreditUsed, data.totalCreditLimit) : 0;
 
@@ -63,7 +90,7 @@ export default function DashboardPage() {
       <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
         <MetricCard
           title="Saldo em Contas"
-          value={formatCurrency(data?.totalBalance || 0)}
+          value={formatCurrency(data?.totalBalance ?? 0)}
           icon={<Wallet className="h-5 w-5 text-emerald-500" />}
         />
         <Card className="border-slate-800 bg-slate-900">
@@ -75,10 +102,10 @@ export default function DashboardPage() {
           </CardHeader>
           <CardContent>
             <div className="text-2xl font-bold text-white">
-              {formatCurrency(data?.totalCreditUsed || 0)}
+              {formatCurrency(data?.totalCreditUsed ?? 0)}
             </div>
             <p className="mt-1 text-xs text-slate-500">
-              de {formatCurrency(data?.totalCreditLimit || 0)} disponível
+              de {formatCurrency(data?.totalCreditLimit ?? 0)} limite
             </p>
             <Progress
               value={creditPercent}
@@ -97,16 +124,14 @@ export default function DashboardPage() {
         </Card>
         <MetricCard
           title="Total Investido"
-          value={formatCurrency(data?.totalInvested || 0)}
+          value={formatCurrency(data?.totalInvested ?? 0)}
           icon={<TrendingUp className="h-5 w-5 text-blue-500" />}
         />
         <MetricCard
           title="Saldo Líquido"
-          value={formatCurrency(data?.netBalance || 0)}
+          value={formatCurrency(data?.netBalance ?? 0)}
           icon={<DollarSign className="h-5 w-5 text-emerald-500" />}
-          valueColor={
-            (data?.netBalance || 0) >= 0 ? "text-emerald-400" : "text-red-400"
-          }
+          valueColor={(data?.netBalance ?? 0) >= 0 ? "text-emerald-400" : "text-red-400"}
         />
       </div>
 
@@ -116,7 +141,7 @@ export default function DashboardPage() {
           <Building2 className="h-5 w-5 text-slate-400" />
           <h2 className="text-lg font-semibold text-white">Bancos Conectados</h2>
           <span className="rounded-full bg-slate-800 px-2 py-0.5 text-xs text-slate-400">
-            {data?.connectedBanks || 0}
+            {data?.connectedBanks ?? 0}
           </span>
         </div>
         {data?.institutions && data.institutions.length > 0 ? (
@@ -156,17 +181,10 @@ export default function DashboardPage() {
   );
 }
 
-// Card de métrica genérico
 function MetricCard({
-  title,
-  value,
-  icon,
-  valueColor = "text-white",
+  title, value, icon, valueColor = "text-white",
 }: {
-  title: string;
-  value: string;
-  icon: React.ReactNode;
-  valueColor?: string;
+  title: string; value: string; icon: React.ReactNode; valueColor?: string;
 }) {
   return (
     <Card className="border-slate-800 bg-slate-900">
@@ -181,7 +199,6 @@ function MetricCard({
   );
 }
 
-// Skeleton de loading
 function DashboardSkeleton() {
   return (
     <div className="space-y-6">

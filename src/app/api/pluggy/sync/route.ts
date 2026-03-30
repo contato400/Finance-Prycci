@@ -59,7 +59,8 @@ export async function POST() {
     };
     const itemErrors: Array<{ itemId: string; institution: string; error: string }> = [];
 
-    for (const dbItem of savedItems) {
+    // Processar items em PARALELO para velocidade
+    const syncPromises = savedItems.map(async (dbItem) => {
       try {
         log(`Sincronizando ${dbItem.institution_name} (${dbItem.item_id})...`);
         const item = await pluggy.fetchItem(dbItem.item_id);
@@ -70,25 +71,46 @@ export async function POST() {
           WHERE id = ${dbItem.id}::uuid
         `;
 
-        // Sincronizar contas (BANK + CREDIT)
+        // Contas primeiro (precisamos dos IDs para transações)
         const acctResult = await syncAccounts(pluggy, dbItem, item.connector.name, log);
-        results.bankAccounts += acctResult.bankAccounts;
-        results.creditAccounts += acctResult.creditAccounts;
-        results.creditCards += acctResult.creditCards;
 
-        // Sincronizar transações de TODAS as contas (bank + credit)
-        results.transactions += await syncTransactions(pluggy, dbItem, log);
+        // Transações, investimentos e empréstimos em paralelo
+        const [txCount, invCount, loanCount] = await Promise.all([
+          syncTransactions(pluggy, dbItem, log),
+          syncInvestments(pluggy, dbItem, log),
+          syncLoans(pluggy, dbItem, item.connector.name, log),
+        ]);
 
-        // Investimentos e empréstimos
-        results.investments += await syncInvestments(pluggy, dbItem, log);
-        results.loans += await syncLoans(pluggy, dbItem, item.connector.name, log);
+        log(`  RESUMO ${dbItem.institution_name}: ${acctResult.bankAccounts} banco, ${acctResult.creditAccounts} crédito, ${acctResult.creditCards} cartões, ${txCount} tx`);
 
-        results.itemsSynced++;
-        log(`  RESUMO ${dbItem.institution_name}: ${acctResult.bankAccounts} contas banco, ${acctResult.creditAccounts} contas crédito, ${acctResult.creditCards} cartões`);
+        return {
+          ok: true as const,
+          bankAccounts: acctResult.bankAccounts,
+          creditAccounts: acctResult.creditAccounts,
+          creditCards: acctResult.creditCards,
+          transactions: txCount,
+          investments: invCount,
+          loans: loanCount,
+        };
       } catch (err) {
         const msg = err instanceof Error ? err.message : String(err);
         log(`  ERRO ${dbItem.institution_name}: ${msg}`);
         itemErrors.push({ itemId: dbItem.item_id, institution: dbItem.institution_name, error: msg });
+        return { ok: false as const };
+      }
+    });
+
+    const syncResults = await Promise.all(syncPromises);
+
+    for (const r of syncResults) {
+      if (r.ok) {
+        results.itemsSynced++;
+        results.bankAccounts += r.bankAccounts;
+        results.creditAccounts += r.creditAccounts;
+        results.creditCards += r.creditCards;
+        results.transactions += r.transactions;
+        results.investments += r.investments;
+        results.loans += r.loans;
       }
     }
 
@@ -211,7 +233,7 @@ async function syncTransactions(pluggy: Pluggy, dbItem: { id: string; item_id: s
   log(`  Buscando transações de ${dbAccounts.length} contas (${dbAccounts.map((a) => a.type).join(", ")})...`);
 
   const fromDate = new Date();
-  fromDate.setDate(fromDate.getDate() - 90);
+  fromDate.setDate(fromDate.getDate() - 30);
   const from = fromDate.toISOString().split("T")[0];
 
   for (const acct of dbAccounts) {
