@@ -1,9 +1,10 @@
 import { NextResponse } from "next/server";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
-import { cachedJson } from "@/lib/cache";
 import { translateInstitution } from "@/lib/institutions";
 import sql from "@/lib/db";
+
+export const dynamic = "force-dynamic";
 
 const TYPE_LABELS: Record<string, string> = {
   FIXED_INCOME: "Renda Fixa", MUTUAL_FUND: "Fundos", EQUITY: "Ações",
@@ -54,7 +55,7 @@ export async function GET() {
       value: Number(inv.value), institution: translateInstitution(inv.institution_name),
     }));
 
-    return cachedJson({ totalInvested, byClass, byInstitution, assets });
+    return NextResponse.json({ totalInvested, byClass, byInstitution, assets });
   } catch (error) {
     const message = error instanceof Error ? error.message : "Erro ao buscar investimentos";
     return NextResponse.json({ error: message }, { status: 500 });

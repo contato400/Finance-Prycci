@@ -1,14 +1,13 @@
 import { NextResponse } from "next/server";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
-import { cachedJson } from "@/lib/cache";
 import { translateInstitution } from "@/lib/institutions";
 import sql from "@/lib/db";
 
-// Cache: revalida a cada 60 segundos
-export const revalidate = 60;
+// Forçar rota dinâmica (sem cache estático do Next.js)
+export const dynamic = "force-dynamic";
 
-// Dashboard: uma única rota que agrega TUDO em queries paralelas
+// Dashboard: agrega dados de todas as tabelas
 export async function GET() {
   try {
     const session = await getServerSession(authOptions);
@@ -18,7 +17,6 @@ export async function GET() {
 
     const thirtyDaysAgo = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString().split("T")[0];
 
-    // Uma única Promise.all com todas as queries necessárias
     const [
       items,
       accounts,
@@ -38,7 +36,7 @@ export async function GET() {
           WHERE date >= ${thirtyDaysAgo} ORDER BY date ASC`,
     ]);
 
-    // Métricas — tudo calculado em uma passada
+    // Métricas
     const bankAccounts = accounts.filter(
       (a) => a.type === "CHECKING_ACCOUNT" || a.type === "SAVINGS_ACCOUNT" || a.type === "BANK"
     );
@@ -48,7 +46,7 @@ export async function GET() {
     const totalInvested = Number(investmentTotals[0]?.total || 0);
     const netBalance = totalBalance - totalCreditUsed;
 
-    // Agrupar por instituição (contas + cartões juntos)
+    // Agrupar por instituição
     const instData = new Map<string, { name: string; balance: number; creditLimit: number; creditUsed: number }>();
 
     for (const a of bankAccounts) {
@@ -66,7 +64,7 @@ export async function GET() {
       instData.set(name, e);
     }
 
-    // Evolução do saldo (últimos 30 dias)
+    // Evolução do saldo
     const txByDay = new Map<string, number>();
     for (const tx of transactions) txByDay.set(tx.date, (txByDay.get(tx.date) || 0) + Number(tx.amount));
 
@@ -78,14 +76,23 @@ export async function GET() {
       balanceHistory.push({ date: dateStr, balance: Math.round((totalBalance - dayDelta * (i / 10)) * 100) / 100 });
     }
 
-    return cachedJson({
+    return NextResponse.json({
       totalBalance, totalCreditUsed, totalCreditLimit, totalInvested, netBalance,
       institutions: Array.from(instData.values()),
       balanceHistory,
       connectedBanks: items.length,
+      // Debug: contagem de registros encontrados
+      _debug: {
+        items: items.length,
+        accounts: accounts.length,
+        bankAccounts: bankAccounts.length,
+        creditCards: creditCards.length,
+        transactions: transactions.length,
+        totalInvested,
+      },
     });
   } catch (error) {
     const message = error instanceof Error ? error.message : "Erro ao carregar dashboard";
-    return NextResponse.json({ error: message }, { status: 500 });
+    return NextResponse.json({ error: message, stack: error instanceof Error ? error.stack : undefined }, { status: 500 });
   }
 }

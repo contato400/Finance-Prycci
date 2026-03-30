@@ -1,10 +1,11 @@
 import { NextResponse } from "next/server";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
-import { cachedJson } from "@/lib/cache";
 import { translateCategory } from "@/lib/categories";
 import { translateInstitution } from "@/lib/institutions";
 import sql from "@/lib/db";
+
+export const dynamic = "force-dynamic";
 
 // Retorna contas com filtro, transações paginadas e gastos por categoria
 export async function GET(request: Request) {
@@ -76,7 +77,7 @@ export async function GET(request: Request) {
       categoryData = catRows.map((r) => ({ category: translateCategory(r.category), total: Number(r.total) }));
     }
 
-    return cachedJson({
+    return NextResponse.json({
       accounts: enriched, transactions, totalTransactions,
       page, pageSize, totalPages: Math.ceil(totalTransactions / pageSize), categoryData,
     });

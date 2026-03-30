@@ -1,9 +1,10 @@
 import { NextResponse } from "next/server";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
-import { cachedJson } from "@/lib/cache";
 import { translateInstitution } from "@/lib/institutions";
 import sql from "@/lib/db";
+
+export const dynamic = "force-dynamic";
 
 // Retorna dados consolidados de crédito
 export async function GET() {
@@ -44,7 +45,7 @@ export async function GET() {
 
     const totalLoanDebt = loans.reduce((s, l) => s + Number(l.outstanding_balance || 0), 0);
 
-    return cachedJson({
+    return NextResponse.json({
       totalLimit, totalUsed, totalAvailable, creditCompromised,
       limitsByBank,
       loans: loans.map((l) => ({ ...l, institution_name: translateInstitution(l.institution_name as string) })),
