@@ -3,7 +3,7 @@ import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import sql from "@/lib/db";
 
-export const revalidate = 30;
+export const dynamic = "force-dynamic";
 
 const TYPE_LABELS: Record<string, string> = {
   FIXED_INCOME: "Renda Fixa", MUTUAL_FUND: "Fundos", EQUITY: "Ações",

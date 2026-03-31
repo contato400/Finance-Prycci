@@ -4,7 +4,7 @@ import { authOptions } from "@/lib/auth";
 import { translateCategory } from "@/lib/categories";
 import sql from "@/lib/db";
 
-export const revalidate = 30;
+export const dynamic = "force-dynamic";
 
 function num(v: unknown): number {
   if (v === null || v === undefined) return 0;

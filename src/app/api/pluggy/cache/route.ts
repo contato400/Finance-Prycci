@@ -3,14 +3,15 @@ import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import sql from "@/lib/db";
 
+export const dynamic = "force-dynamic";
+
 function num(v: unknown): number {
   if (v === null || v === undefined) return 0;
   const n = Number(v);
   return isNaN(n) ? 0 : n;
 }
 
-// Calcula métricas do dashboard e salva na tabela dashboard_cache.
-// Usa uma ÚNICA query com CASE WHEN — sem JOIN, sem subquery, < 2s.
+// Calcula métricas e salva em dashboard_cache. Chamada após sync.
 export async function POST() {
   try {
     const session = await getServerSession(authOptions);
@@ -18,36 +19,33 @@ export async function POST() {
       return NextResponse.json({ error: "Não autorizado" }, { status: 401 });
     }
 
-    // Query 1: métricas de contas (1 full scan, sem JOIN)
+    // Query combinada: métricas de contas + investimentos em 1 query
     const [totals] = await sql`
       SELECT
         SUM(CASE WHEN type NOT IN ('CREDIT','CREDIT_CARD') THEN balance ELSE 0 END)::float AS total_balance,
-        SUM(CASE WHEN type IN ('CREDIT','CREDIT_CARD') THEN ABS(balance) ELSE 0 END)::float AS total_credit,
-        SUM(CASE WHEN type IN ('CREDIT','CREDIT_CARD') THEN COALESCE(credit_limit,0) ELSE 0 END)::float AS total_limit
+        SUM(CASE WHEN type IN ('CREDIT','CREDIT_CARD') THEN ABS(balance) ELSE 0 END)::float AS total_credit_used,
+        SUM(CASE WHEN type IN ('CREDIT','CREDIT_CARD') THEN COALESCE(credit_limit,0) ELSE 0 END)::float AS total_limit,
+        (SELECT COALESCE(SUM(balance),0)::float FROM investments) AS total_invested
       FROM accounts
     `;
 
-    // Query 2: total investido
-    const [inv] = await sql`SELECT COALESCE(SUM(balance),0)::float AS total FROM investments`;
-
-    // Query 3: bancos conectados (tabela pequena)
-    const items = await sql`SELECT id, institution_name FROM pluggy_items`;
-
     const totalBalance = num(totals?.total_balance);
-    const totalCreditUsed = num(totals?.total_credit);
+    const totalCreditUsed = num(totals?.total_credit_used);
     const totalCreditLimit = num(totals?.total_limit);
-    const totalInvested = num(inv?.total);
+    const totalInvested = num(totals?.total_invested);
     const netBalance = totalBalance - totalCreditUsed;
 
-    // Instituições com saldos — 2 queries simples sem JOIN
+    // Bancos conectados
+    const items = await sql`SELECT id, institution_name FROM pluggy_items`;
+    const itemMap = new Map<string, string>();
+    for (const i of items) itemMap.set(i.id, i.institution_name);
+
+    // Instituições com saldos
     const accounts = await sql`
       SELECT item_id, type, balance::float AS balance,
              COALESCE(credit_limit,0)::float AS credit_limit
       FROM accounts
     `;
-
-    const itemMap = new Map<string, string>();
-    for (const i of items) itemMap.set(i.id, i.institution_name);
 
     const instMap = new Map<string, { name: string; balance: number; creditLimit: number; creditUsed: number }>();
     for (const a of accounts) {
@@ -62,7 +60,7 @@ export async function POST() {
       instMap.set(name, e);
     }
 
-    // Gráfico — transações agrupadas por dia (query rápida com índice)
+    // Gráfico (30 dias)
     const thirtyDaysAgo = new Date(Date.now() - 30 * 86400000).toISOString().split("T")[0];
     const txData = await sql`
       SELECT date::text AS date, SUM(amount)::float AS total
@@ -95,17 +93,13 @@ export async function POST() {
       connectedBanks: items.length,
     };
 
-    // Salvar no cache (1 upsert)
     await sql`
       INSERT INTO dashboard_cache (id, data, updated_at)
       VALUES (1, ${JSON.stringify(cacheData)}::jsonb, now())
       ON CONFLICT (id) DO UPDATE SET data = EXCLUDED.data, updated_at = now()
     `;
 
-    return NextResponse.json({
-      message: "Cache atualizado",
-      ...cacheData,
-    });
+    return NextResponse.json({ success: true, ...cacheData });
   } catch (error) {
     const message = error instanceof Error ? error.message : "Erro ao construir cache";
     return NextResponse.json({ error: message }, { status: 500 });
