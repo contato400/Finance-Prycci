@@ -30,7 +30,21 @@ export async function GET(request: Request) {
       SELECT a.id, a.pluggy_account_id, a.name, a.type,
              a.balance::float as balance,
              COALESCE(a.credit_limit, 0)::float as credit_limit,
-             a.updated_at, p.institution_name
+             a.updated_at,
+             CASE
+               WHEN p.institution_name = 'MeuPluggy' THEN
+                 CASE
+                   WHEN a.name ILIKE '%nubank%' OR a.name ILIKE '%nu pagamento%' THEN 'Nubank'
+                   WHEN a.name ILIKE '%inter%' THEN 'Banco Inter'
+                   WHEN a.name ILIKE '%caixa%' THEN 'Caixa Econômica Federal'
+                   WHEN a.name ILIKE '%bradesco%' THEN 'Bradesco'
+                   WHEN a.name ILIKE '%itau%' OR a.name ILIKE '%itaú%' THEN 'Itaú'
+                   WHEN a.name ILIKE '%santander%' THEN 'Santander'
+                   WHEN a.name ILIKE '%c6%' THEN 'C6 Bank'
+                   ELSE a.name
+                 END
+               ELSE p.institution_name
+             END AS institution_name
       FROM accounts a
       JOIN pluggy_items p ON a.item_id = p.id
       WHERE a.type IN ('CREDIT', 'CREDIT_CARD')

@@ -17,10 +17,6 @@ import {
 interface BankData {
   name: string;
   status: string;
-  totalContas: number;
-  balance: number;
-  creditUsed: number;
-  creditLimit: number;
 }
 
 interface TopTransaction {
@@ -50,20 +46,21 @@ interface DashboardData {
   cachedAt?: string;
 }
 
-// Cores por banco
-const BANK_COLORS: Record<string, string> = {
-  nubank: "bg-purple-600", nu: "bg-purple-600",
-  inter: "bg-orange-500", itaú: "bg-blue-600", itau: "bg-blue-600",
-  bradesco: "bg-red-600", santander: "bg-red-500",
-  caixa: "bg-blue-500", "banco do brasil": "bg-yellow-500",
-  c6: "bg-gray-700", btg: "bg-blue-800", xp: "bg-slate-700",
+// Cores por banco (hex para avatares)
+const BANK_AVATAR_COLORS: Record<string, string> = {
+  nubank: "#820AD1",
+  "banco inter": "#FF7A00",
+  inter: "#FF7A00",
+  "caixa econômica federal": "#006CB7",
+  caixa: "#006CB7",
+  "nubank empresas": "#5D0099",
 };
-function getBankColor(name: string): string {
+function getBankAvatarColor(name: string): string {
   const lower = name.toLowerCase();
-  for (const [key, color] of Object.entries(BANK_COLORS)) {
+  for (const [key, color] of Object.entries(BANK_AVATAR_COLORS)) {
     if (lower.includes(key)) return color;
   }
-  return "bg-slate-600";
+  return "#64748b"; // slate-500
 }
 
 // Badge de forma de pagamento
@@ -238,12 +235,12 @@ export default function DashboardPage() {
           {!loading && <span className="rounded-full bg-slate-800 px-2 py-0.5 text-xs text-slate-400">{data?.connectedBanks ?? 0}</span>}
         </div>
         {loading ? (
-          <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-            {Array.from({ length: 3 }).map((_, i) => <Skeleton key={i} className="h-44 rounded-lg" />)}
+          <div className="flex flex-wrap gap-3">
+            {Array.from({ length: 3 }).map((_, i) => <Skeleton key={i} className="h-10 w-40 rounded-full" />)}
           </div>
         ) : data?.banks && data.banks.length > 0 ? (
-          <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-            {data.banks.map((bank) => <BankCard key={bank.name} bank={bank} />)}
+          <div className="flex flex-wrap gap-3">
+            {data.banks.map((bank) => <BankChip key={bank.name} bank={bank} />)}
           </div>
         ) : (
           <Card className="border-slate-800 bg-slate-900">
@@ -258,58 +255,22 @@ export default function DashboardPage() {
   );
 }
 
-// Card de banco conectado
-function BankCard({ bank }: { bank: BankData }) {
-  const color = getBankColor(bank.name);
+// Chip compacto de banco conectado
+function BankChip({ bank }: { bank: BankData }) {
+  const avatarColor = getBankAvatarColor(bank.name);
   const initials = bank.name.split(" ").map((w) => w[0]).join("").slice(0, 2).toUpperCase();
-  const creditPercent = calcPercentage(bank.creditUsed, bank.creditLimit);
 
   return (
-    <Card className="border-slate-800 bg-slate-900 transition-colors hover:border-slate-700">
-      <CardContent className="p-5">
-        <div className="flex items-center gap-3">
-          <div className={`flex h-10 w-10 items-center justify-center rounded-lg text-sm font-bold text-white ${color}`}>
-            {initials}
-          </div>
-          <div className="min-w-0 flex-1">
-            <p className="truncate text-sm font-medium text-white">{bank.name}</p>
-            <div className="flex items-center gap-1.5">
-              <div className={`h-1.5 w-1.5 rounded-full ${bank.status === "UPDATED" ? "bg-emerald-400" : "bg-yellow-400"}`} />
-              <span className="text-[10px] text-slate-500">{bank.status === "UPDATED" ? "Conectado" : bank.status}</span>
-              <span className="text-[10px] text-slate-700">•</span>
-              <span className="text-[10px] text-slate-500">{bank.totalContas} conta{bank.totalContas !== 1 ? "s" : ""}</span>
-            </div>
-          </div>
-        </div>
-
-        <div className="mt-4 space-y-2">
-          {bank.balance !== 0 && (
-            <div className="flex items-center justify-between">
-              <span className="text-xs text-slate-400">Saldo</span>
-              <span className={`text-sm font-semibold ${bank.balance >= 0 ? "text-emerald-400" : "text-red-400"}`}>
-                {formatCurrency(bank.balance)}
-              </span>
-            </div>
-          )}
-
-          {bank.creditLimit > 0 && (
-            <>
-              <div className="flex items-center justify-between">
-                <span className="text-xs text-slate-400">Crédito usado</span>
-                <span className="text-sm text-red-400">{formatCurrency(bank.creditUsed)}</span>
-              </div>
-              <Progress
-                value={creditPercent}
-                className={`h-1.5 ${creditPercent > 80 ? "[&>div]:bg-red-500" : creditPercent > 50 ? "[&>div]:bg-yellow-500" : "[&>div]:bg-emerald-500"}`}
-              />
-              <p className="text-right text-[10px] text-slate-600">
-                {creditPercent}% de {formatCurrency(bank.creditLimit)}
-              </p>
-            </>
-          )}
-        </div>
-      </CardContent>
-    </Card>
+    <div className="flex items-center gap-2 rounded-full border border-slate-800 bg-slate-900 px-3 py-1.5">
+      <div
+        className="flex h-6 w-6 items-center justify-center rounded-full text-[10px] font-bold text-white"
+        style={{ backgroundColor: avatarColor }}
+      >
+        {initials}
+      </div>
+      <span className="text-sm font-medium text-white">{bank.name}</span>
+      <div className={`h-2 w-2 rounded-full ${bank.status === "UPDATED" ? "bg-emerald-400" : "bg-yellow-400"}`} />
+    </div>
   );
 }
 

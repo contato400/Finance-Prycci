@@ -58,6 +58,13 @@ const CATEGORY_MAP: Record<string, string> = {
   "Communication": "Comunicação",
   "Recreation": "Lazer",
   "Sports": "Esportes",
+  "Food and drinks": "Alimentação",
+  "Food delivery": "Delivery",
+  "Taxi and ride-hailing": "Transporte (app)",
+  "Same person transfer": "Transferência própria",
+  "Digital services": "Serviços digitais",
+  "Hospital clinics and labs": "Saúde",
+  "Supermarket": "Supermercado",
 };
 
 // Traduz uma categoria para pt-BR. Se não encontrar no mapa, retorna original.

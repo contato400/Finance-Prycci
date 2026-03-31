@@ -43,32 +43,20 @@ export async function GET(request: Request) {
     const totalInvested = num(c.totalInvested ?? c.total_investments);
     const netBalance = totalBalance - totalCreditUsed;
 
-    // 2. Bancos conectados — query dinâmica
+    // 2. Bancos conectados — sem duplicatas, apenas banco + status
     const banks = await sql`
-      SELECT
-        pi.id AS pi_id,
-        CASE
-          WHEN pi.institution_name = 'MeuPluggy' THEN
-            COALESCE((SELECT CASE
-              WHEN a2.name ILIKE '%nubank%' OR a2.name ILIKE '%nu pagamento%' THEN 'Nubank'
-              WHEN a2.name ILIKE '%inter%' THEN 'Banco Inter'
-              WHEN a2.name ILIKE '%caixa%' THEN 'Caixa Econômica Federal'
-              WHEN a2.name ILIKE '%bradesco%' THEN 'Bradesco'
-              WHEN a2.name ILIKE '%itau%' OR a2.name ILIKE '%itaú%' THEN 'Itaú'
-              WHEN a2.name ILIKE '%santander%' THEN 'Santander'
-              ELSE a2.name END
-            FROM accounts a2 WHERE a2.item_id = pi.id LIMIT 1), pi.institution_name)
-          ELSE pi.institution_name
-        END AS institution_name,
-        pi.status,
-        COUNT(a.id)::int AS total_contas,
-        COALESCE(SUM(CASE WHEN a.type NOT IN ('CREDIT','CREDIT_CARD') THEN a.balance ELSE 0 END), 0)::float AS saldo_total,
-        COALESCE(SUM(CASE WHEN a.type IN ('CREDIT','CREDIT_CARD') THEN ABS(a.balance) ELSE 0 END), 0)::float AS credito_usado,
-        COALESCE(SUM(CASE WHEN a.type IN ('CREDIT','CREDIT_CARD') THEN COALESCE(a.credit_limit,0) ELSE 0 END), 0)::float AS credito_limite
+      SELECT DISTINCT
+        CASE WHEN pi.institution_name = 'MeuPluggy' THEN
+          CASE
+            WHEN EXISTS(SELECT 1 FROM accounts a WHERE a.item_id = pi.id AND a.name ILIKE '%nubank%') THEN 'Nubank'
+            WHEN EXISTS(SELECT 1 FROM accounts a WHERE a.item_id = pi.id AND a.name ILIKE '%inter%') THEN 'Banco Inter'
+            WHEN EXISTS(SELECT 1 FROM accounts a WHERE a.item_id = pi.id AND a.name ILIKE '%caixa%') THEN 'Caixa Econômica Federal'
+            ELSE pi.institution_name
+          END
+        ELSE pi.institution_name END AS banco,
+        pi.status
       FROM pluggy_items pi
-      LEFT JOIN accounts a ON a.item_id = pi.id
-      GROUP BY pi.id, pi.institution_name, pi.status
-      ORDER BY pi.institution_name
+      GROUP BY banco, pi.status
     `;
 
     const connectedBanks = banks.length;
@@ -127,12 +115,8 @@ export async function GET(request: Request) {
     return NextResponse.json({
       totalBalance, totalCreditUsed, totalCreditLimit, totalInvested, netBalance,
       banks: banks.map((b) => ({
-        name: b.institution_name,
+        name: b.banco,
         status: b.status,
-        totalContas: num(b.total_contas),
-        balance: num(b.saldo_total),
-        creditUsed: num(b.credito_usado),
-        creditLimit: num(b.credito_limite),
       })),
       connectedBanks,
       periodIncome,

@@ -19,32 +19,26 @@ interface CreditCardVisualProps {
   onClick?: () => void;
 }
 
-// Cores de fundo por instituição
-const CARD_GRADIENTS: Record<string, string> = {
-  nubank: "from-purple-700 via-purple-800 to-purple-950",
-  nu: "from-purple-700 via-purple-800 to-purple-950",
-  inter: "from-orange-600 via-orange-700 to-orange-900",
-  itaú: "from-blue-700 via-blue-800 to-blue-950",
-  itau: "from-blue-700 via-blue-800 to-blue-950",
-  bradesco: "from-red-700 via-red-800 to-red-950",
-  santander: "from-red-600 via-red-700 to-red-900",
-  c6: "from-gray-700 via-gray-800 to-gray-950",
-  btg: "from-blue-900 via-slate-800 to-slate-950",
-  xp: "from-slate-700 via-slate-800 to-slate-950",
+// Cores de fundo por instituição (gradientes customizados)
+const CARD_GRADIENT_STYLES: Record<string, { from: string; to: string }> = {
+  nubank: { from: "#820AD1", to: "#5D0099" },
+  "banco inter": { from: "#FF7A00", to: "#E56000" },
+  inter: { from: "#FF7A00", to: "#E56000" },
+  caixa: { from: "#006CB7", to: "#004A8F" },
 };
 
-function getCardGradient(name: string): string {
+function getCardGradientStyle(name: string): { from: string; to: string } {
   const lower = name.toLowerCase();
-  for (const [key, gradient] of Object.entries(CARD_GRADIENTS)) {
-    if (lower.includes(key)) return gradient;
+  for (const [key, style] of Object.entries(CARD_GRADIENT_STYLES)) {
+    if (lower.includes(key)) return style;
   }
-  return "from-slate-700 via-slate-800 to-slate-950";
+  return { from: "#334155", to: "#1e293b" }; // dark gray default
 }
 
 // Componente visual de cartão de crédito (estilo cartão físico, dark)
 export function CreditCardVisual({ card, selected, onClick }: CreditCardVisualProps) {
   const institutionName = card.accounts?.pluggy_items?.institution_name || card.name;
-  const gradient = getCardGradient(institutionName);
+  const gradientStyle = getCardGradientStyle(institutionName);
   const usagePercent = calcPercentage(card.balance, card.credit_limit);
 
   return (
@@ -56,9 +50,10 @@ export function CreditCardVisual({ card, selected, onClick }: CreditCardVisualPr
     >
       {/* Cartão visual */}
       <div
-        className={`relative overflow-hidden rounded-2xl bg-gradient-to-br ${gradient} p-6 shadow-xl ${
+        className={`relative overflow-hidden rounded-2xl p-6 shadow-xl ${
           selected ? "ring-2 ring-emerald-500 ring-offset-2 ring-offset-slate-950" : ""
         }`}
+        style={{ background: `linear-gradient(135deg, ${gradientStyle.from}, ${gradientStyle.to})` }}
       >
         {/* Padrão decorativo */}
         <div className="absolute -right-8 -top-8 h-40 w-40 rounded-full bg-white/5" />
