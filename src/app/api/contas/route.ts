@@ -69,21 +69,37 @@ export async function GET(request: Request) {
     if (accountIds.length > 0) {
       const [catRows, transferRows] = await Promise.all([
         sql`
-          SELECT effective_category as category, SUM(ABS(amount))::float as total
+          SELECT categoria_real as category, SUM(ABS(amount))::float as total
           FROM (
-            SELECT amount,
+            SELECT amount, category, description,
               CASE
-                WHEN description ILIKE '%pix%' THEN 'Pix enviado'
-                WHEN description ILIKE '%ted%' THEN 'TED'
-                WHEN description ILIKE '%boleto%' OR description ILIKE '%slip%' THEN 'Boleto'
-                ELSE COALESCE(category, 'Sem categoria')
-              END AS effective_category
+                WHEN description ILIKE '%pix%' AND amount < 0 THEN
+                  'Pix: ' || TRIM(REGEXP_REPLACE(
+                    REGEXP_REPLACE(description, '(?i)pix enviado\\|?\\s*', ''),
+                    '(?i)transferência enviada\\|?\\s*', ''
+                  ))
+                WHEN (description ILIKE '%ted%' OR description ILIKE '%doc%') AND amount < 0 THEN
+                  'TED: ' || TRIM(SPLIT_PART(description, '|', 2))
+                WHEN description ILIKE '%transferência enviada%' AND description LIKE '%|%' THEN
+                  'Transf: ' || TRIM(SPLIT_PART(description, '|', 2))
+                WHEN description ILIKE '%boleto%' OR description ILIKE '%slip%'
+                  OR description ILIKE '%pgto%' OR description ILIKE '%pagamento%' THEN
+                  'Boleto / Pagamento'
+                WHEN description ILIKE '%fatura%' OR description ILIKE '%cartao%'
+                  OR description ILIKE '%cartão%' THEN
+                  'Pagamento de cartão'
+                WHEN category ILIKE '%invest%' OR description ILIKE '%aplicacao%'
+                  OR description ILIKE '%cdb%' OR description ILIKE '%tesouro%' THEN
+                  'Aporte / Aplicação'
+                ELSE COALESCE(category, 'Outros')
+              END AS categoria_real
             FROM transactions
-            WHERE account_id = ANY(${accountIds}::uuid[]) AND type = 'DEBIT'
+            WHERE account_id = ANY(${accountIds}::uuid[])
+              AND amount < 0
               AND date >= ${start} AND date <= ${end}
           ) sub
-          GROUP BY effective_category
-          ORDER BY total DESC LIMIT 10`,
+          GROUP BY categoria_real
+          ORDER BY total DESC`,
         sql`
           SELECT
             REGEXP_REPLACE(description,
@@ -104,10 +120,21 @@ export async function GET(request: Request) {
           ORDER BY total DESC
           LIMIT 5`,
       ]);
-      categoryData = catRows.map((r) => ({
+      // Top 8 categorias + agrupar resto em "Outros"
+      const allCategories = catRows.map((r) => ({
         category: translateCategory(r.category),
         total: Number(r.total) || 0,
       }));
+
+      if (allCategories.length > 8) {
+        const top8 = allCategories.slice(0, 8);
+        const restCount = allCategories.length - 8;
+        const restTotal = allCategories.slice(8).reduce((s, c) => s + c.total, 0);
+        top8.push({ category: `Outros (${restCount} categorias)`, total: restTotal });
+        categoryData = top8;
+      } else {
+        categoryData = allCategories;
+      }
       topTransfers = transferRows.map((r) => ({
         destinatario: r.destinatario || "Desconhecido",
         total: Number(r.total) || 0,
