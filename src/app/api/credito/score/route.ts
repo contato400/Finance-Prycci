@@ -17,9 +17,10 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: "Score deve ser entre 0 e 1000" }, { status: 400 });
     }
 
+    const today = new Date().toISOString().split("T")[0];
     const [row] = await sql`
-      INSERT INTO credit_score (score, source, updated_at)
-      VALUES (${score}, ${source || "Serasa"}, now())
+      INSERT INTO credit_score (score, source, recorded_at, updated_at)
+      VALUES (${score}, ${source || "Serasa"}, ${today}, now())
       RETURNING *
     `;
 
