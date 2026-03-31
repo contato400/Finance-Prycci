@@ -59,7 +59,7 @@ export function PluggyWidget() {
             const syncData = await syncRes.json();
 
             // 5. Atualizar cache do dashboard
-            await fetch("/api/pluggy/cache", { method: "POST" });
+            await fetch("/api/pluggy/force-cache", { method: "POST" });
 
             if (syncRes.ok && syncData.synced) {
               toast({

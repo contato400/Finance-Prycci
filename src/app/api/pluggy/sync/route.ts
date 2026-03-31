@@ -116,24 +116,28 @@ export async function POST() {
 
     log(`Finalizado: ${results.itemsSynced}/${results.itemsFound} — ${results.bankAccounts} contas, ${results.creditCards} cartões, ${results.transactions} transações`);
 
-    // Atualizar cache do dashboard inline (1 query SQL)
+    // Atualizar cache do dashboard inline
     log("Atualizando cache do dashboard...");
     try {
+      // Queries simples separadas (mais confiável que jsonb_build_object com subqueries)
+      const [balRow, crRow, invRow, bnkRow] = await Promise.all([
+        sql`SELECT COALESCE(SUM(balance),0)::float AS v FROM accounts WHERE type NOT IN ('CREDIT','CREDIT_CARD')`,
+        sql`SELECT COALESCE(SUM(ABS(balance)),0)::float AS used, COALESCE(SUM(COALESCE(credit_limit,0)),0)::float AS lim FROM accounts WHERE type IN ('CREDIT','CREDIT_CARD')`,
+        sql`SELECT COALESCE(SUM(balance),0)::float AS v FROM investments`,
+        sql`SELECT COUNT(*)::int AS v FROM pluggy_items`,
+      ]);
+      const tb = Number(balRow[0]?.v) || 0;
+      const tcu = Number(crRow[0]?.used) || 0;
+      const tcl = Number(crRow[0]?.lim) || 0;
+      const ti = Number(invRow[0]?.v) || 0;
+      const cb = Number(bnkRow[0]?.v) || 0;
+      const cacheData = { totalBalance: tb, totalCreditUsed: tcu, totalCreditLimit: tcl, totalInvested: ti, netBalance: tb - tcu, connectedBanks: cb };
       await sql`
         INSERT INTO dashboard_cache (id, data, updated_at)
-        VALUES (1, jsonb_build_object(
-          'totalBalance', (SELECT COALESCE(SUM(balance),0) FROM accounts WHERE type NOT IN ('CREDIT','CREDIT_CARD')),
-          'totalCreditUsed', (SELECT COALESCE(SUM(ABS(balance)),0) FROM accounts WHERE type IN ('CREDIT','CREDIT_CARD')),
-          'totalCreditLimit', (SELECT COALESCE(SUM(credit_limit),0) FROM accounts WHERE type IN ('CREDIT','CREDIT_CARD')),
-          'totalInvested', (SELECT COALESCE(SUM(balance),0) FROM investments),
-          'connectedBanks', (SELECT COUNT(*) FROM pluggy_items),
-          'netBalance', (SELECT COALESCE(SUM(balance),0) FROM accounts WHERE type NOT IN ('CREDIT','CREDIT_CARD'))
-                       - (SELECT COALESCE(SUM(ABS(balance)),0) FROM accounts WHERE type IN ('CREDIT','CREDIT_CARD')),
-          'syncedAt', NOW()
-        ), NOW())
+        VALUES (1, ${JSON.stringify(cacheData)}::jsonb, NOW())
         ON CONFLICT (id) DO UPDATE SET data = EXCLUDED.data, updated_at = NOW()
       `;
-      log("Cache atualizado");
+      log(`Cache OK: balance=${tb} credit=${tcu}/${tcl} invest=${ti} banks=${cb}`);
     } catch (cacheErr) {
       log(`Cache ERRO: ${cacheErr instanceof Error ? cacheErr.message : String(cacheErr)}`);
     }

@@ -15,7 +15,7 @@ export function Header() {
   async function handleSync() {
     setSyncing(true);
     try {
-      // 1. Sincronizar (inclui atualização do cache inline)
+      // 1. Sincronizar dados da Pluggy
       toast({ title: "Sincronizando dados bancários..." });
       const res = await fetch("/api/pluggy/sync", { method: "POST" });
       const data = await res.json();
@@ -25,6 +25,10 @@ export function Header() {
         if (data.logs) console.info("[sync logs]", data.logs);
         return;
       }
+
+      // 2. Forçar recálculo do cache (redundância se o inline no sync falhou)
+      toast({ title: "Atualizando dashboard..." });
+      await fetch("/api/pluggy/force-cache", { method: "POST" }).catch(() => {});
 
       // 2. Sucesso — mostrar toast com hora atual
       const now = new Date().toLocaleString("pt-BR", { day: "2-digit", month: "2-digit", year: "numeric", hour: "2-digit", minute: "2-digit" });

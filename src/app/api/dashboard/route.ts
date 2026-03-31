@@ -12,9 +12,6 @@ function num(v: unknown): number {
   return isNaN(n) ? 0 : n;
 }
 
-// Dashboard:
-// - Saldos atuais → cache (instantâneo)
-// - Movimentações do período → queries na tabela transactions (filtradas por data)
 export async function GET(request: Request) {
   try {
     const session = await getServerSession(authOptions);
@@ -27,7 +24,7 @@ export async function GET(request: Request) {
     const start = searchParams.get("start") ?? new Date(now.getFullYear(), now.getMonth(), 1).toISOString().split("T")[0];
     const end = searchParams.get("end") ?? new Date(now.getFullYear(), now.getMonth() + 1, 0).toISOString().split("T")[0];
 
-    // 1. Saldos atuais do cache (1 query, < 50ms)
+    // 1. Saldos atuais do cache
     const cacheRows = await sql`SELECT data, updated_at FROM dashboard_cache WHERE id = 1 LIMIT 1`;
 
     if (!cacheRows.length || !cacheRows[0].data || Object.keys(cacheRows[0].data).length === 0) {
@@ -41,41 +38,40 @@ export async function GET(request: Request) {
       });
     }
 
-    const cached = cacheRows[0].data as Record<string, unknown>;
+    // Mapear campos do cache (aceita ambos formatos de key)
+    const c = cacheRows[0].data as Record<string, unknown>;
+    const totalBalance = num(c.totalBalance ?? c.total_balance);
+    const totalCreditUsed = num(c.totalCreditUsed ?? c.total_credit_used);
+    const totalCreditLimit = num(c.totalCreditLimit ?? c.total_limit ?? c.totalCreditLimit);
+    const totalInvested = num(c.totalInvested ?? c.total_investments);
+    const connectedBanks = num(c.connectedBanks ?? c.connected_banks);
+    const netBalance = totalBalance - totalCreditUsed;
+    const institutions = (c.institutions as Array<Record<string, unknown>> | undefined) || [];
 
-    // 2. Movimentações do período (queries leves, filtradas por data)
+    // 2. Movimentações do período
     const [incomeRow, expensesRow, categoriesRows] = await Promise.all([
-      sql`SELECT COALESCE(SUM(amount), 0)::float AS total
-          FROM transactions WHERE amount > 0 AND date >= ${start} AND date <= ${end}`,
-      sql`SELECT COALESCE(SUM(ABS(amount)), 0)::float AS total
-          FROM transactions WHERE amount < 0 AND date >= ${start} AND date <= ${end}`,
-      sql`SELECT COALESCE(category, 'Sem categoria') AS category,
-                 SUM(ABS(amount))::float AS total
-          FROM transactions
-          WHERE amount < 0 AND date >= ${start} AND date <= ${end}
-          GROUP BY COALESCE(category, 'Sem categoria')
-          ORDER BY total DESC LIMIT 5`,
+      sql`SELECT COALESCE(SUM(amount), 0)::float AS total FROM transactions WHERE amount > 0 AND date >= ${start} AND date <= ${end}`,
+      sql`SELECT COALESCE(SUM(ABS(amount)), 0)::float AS total FROM transactions WHERE amount < 0 AND date >= ${start} AND date <= ${end}`,
+      sql`SELECT COALESCE(category, 'Sem categoria') AS category, SUM(ABS(amount))::float AS total
+          FROM transactions WHERE amount < 0 AND date >= ${start} AND date <= ${end}
+          GROUP BY COALESCE(category, 'Sem categoria') ORDER BY total DESC LIMIT 5`,
     ]);
 
     const periodIncome = num(incomeRow[0]?.total);
     const periodExpenses = num(expensesRow[0]?.total);
-    const periodNet = periodIncome - periodExpenses;
-
-    const topCategories = categoriesRows.map((r) => ({
-      category: translateCategory(r.category),
-      total: num(r.total),
-    }));
 
     return NextResponse.json({
-      // Saldos atuais (do cache — não mudam com período)
-      ...cached,
-      // Movimentações do período selecionado
+      totalBalance,
+      totalCreditUsed,
+      totalCreditLimit,
+      totalInvested,
+      netBalance,
+      connectedBanks,
+      institutions,
       periodIncome,
       periodExpenses,
-      periodNet,
-      topCategories,
-      periodStart: start,
-      periodEnd: end,
+      periodNet: periodIncome - periodExpenses,
+      topCategories: categoriesRows.map((r) => ({ category: translateCategory(r.category), total: num(r.total) })),
       cachedAt: cacheRows[0].updated_at,
     });
   } catch (error) {
