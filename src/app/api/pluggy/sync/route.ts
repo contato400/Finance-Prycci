@@ -116,6 +116,28 @@ export async function POST() {
 
     log(`Finalizado: ${results.itemsSynced}/${results.itemsFound} — ${results.bankAccounts} contas, ${results.creditCards} cartões, ${results.transactions} transações`);
 
+    // Atualizar cache do dashboard inline (1 query SQL)
+    log("Atualizando cache do dashboard...");
+    try {
+      await sql`
+        INSERT INTO dashboard_cache (id, data, updated_at)
+        VALUES (1, jsonb_build_object(
+          'totalBalance', (SELECT COALESCE(SUM(balance),0) FROM accounts WHERE type NOT IN ('CREDIT','CREDIT_CARD')),
+          'totalCreditUsed', (SELECT COALESCE(SUM(ABS(balance)),0) FROM accounts WHERE type IN ('CREDIT','CREDIT_CARD')),
+          'totalCreditLimit', (SELECT COALESCE(SUM(credit_limit),0) FROM accounts WHERE type IN ('CREDIT','CREDIT_CARD')),
+          'totalInvested', (SELECT COALESCE(SUM(balance),0) FROM investments),
+          'connectedBanks', (SELECT COUNT(*) FROM pluggy_items),
+          'netBalance', (SELECT COALESCE(SUM(balance),0) FROM accounts WHERE type NOT IN ('CREDIT','CREDIT_CARD'))
+                       - (SELECT COALESCE(SUM(ABS(balance)),0) FROM accounts WHERE type IN ('CREDIT','CREDIT_CARD')),
+          'syncedAt', NOW()
+        ), NOW())
+        ON CONFLICT (id) DO UPDATE SET data = EXCLUDED.data, updated_at = NOW()
+      `;
+      log("Cache atualizado");
+    } catch (cacheErr) {
+      log(`Cache ERRO: ${cacheErr instanceof Error ? cacheErr.message : String(cacheErr)}`);
+    }
+
     return NextResponse.json({
       message: `${results.itemsSynced} de ${results.itemsFound} bancos sincronizados.`,
       synced: results.itemsSynced > 0, results,

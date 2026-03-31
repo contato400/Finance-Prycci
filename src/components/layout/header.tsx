@@ -15,8 +15,8 @@ export function Header() {
   async function handleSync() {
     setSyncing(true);
     try {
+      // 1. Sincronizar (inclui atualização do cache inline)
       toast({ title: "Sincronizando dados bancários..." });
-
       const res = await fetch("/api/pluggy/sync", { method: "POST" });
       const data = await res.json();
 
@@ -26,22 +26,18 @@ export function Header() {
         return;
       }
 
-      toast({ title: "Atualizando dashboard..." });
-      const cacheRes = await fetch("/api/pluggy/cache", { method: "POST" });
-      const cacheData = await cacheRes.json();
+      // 2. Sucesso — mostrar toast com hora atual
+      const now = new Date().toLocaleString("pt-BR", { day: "2-digit", month: "2-digit", year: "numeric", hour: "2-digit", minute: "2-digit" });
+      setLastSync(now);
 
-      if (!cacheRes.ok || cacheData.error) {
-        toast({ title: "Sync OK, mas cache falhou", description: cacheData.error, variant: "destructive" });
-      } else {
-        setLastSync(new Date().toLocaleString("pt-BR"));
-        const msg = data.message || "Dados atualizados.";
-        const itemErrors = data.itemErrors as Array<{ itemId: string; error: string }> | undefined;
-        toast({
-          title: itemErrors?.length ? "Sincronização parcial" : "Sincronização concluída",
-          description: itemErrors?.length ? `${msg} (${itemErrors.length} erro(s))` : msg,
-        });
-      }
+      const msg = data.message || "Dados atualizados.";
+      const itemErrors = data.itemErrors as Array<{ itemId: string; error: string }> | undefined;
+      toast({
+        title: itemErrors?.length ? "Sincronização parcial" : `Dados atualizados • ${now}`,
+        description: itemErrors?.length ? `${msg} (${itemErrors.length} erro(s))` : msg,
+      });
 
+      // 3. Recarregar para refletir os dados novos
       window.location.reload();
     } catch (err) {
       toast({ title: "Erro de rede", description: err instanceof Error ? err.message : "Sem conexão.", variant: "destructive" });
