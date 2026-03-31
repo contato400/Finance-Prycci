@@ -58,6 +58,9 @@ export function PluggyWidget() {
             const syncRes = await fetch("/api/pluggy/sync", { method: "POST" });
             const syncData = await syncRes.json();
 
+            // 5. Atualizar cache do dashboard
+            await fetch("/api/pluggy/cache", { method: "POST" });
+
             if (syncRes.ok && syncData.synced) {
               toast({
                 title: "Banco adicionado com sucesso!",

@@ -14,6 +14,9 @@ export function Header() {
   async function handleSync() {
     setSyncing(true);
     try {
+      // Etapa 1: sincronizar dados da Pluggy
+      toast({ title: "Sincronizando dados bancários..." });
+
       const res = await fetch("/api/pluggy/sync", { method: "POST" });
       const data = await res.json();
 
@@ -23,32 +26,39 @@ export function Header() {
           description: data.error || `Status ${res.status}`,
           variant: "destructive",
         });
-        // Logar detalhes no console para debug
         if (data.logs) console.info("[sync logs]", data.logs);
-        if (data.details) console.info("[sync details]", data.details);
         return;
       }
 
-      setLastSync(new Date().toLocaleString("pt-BR"));
+      // Etapa 2: atualizar cache do dashboard (rápido, < 2s)
+      toast({ title: "Atualizando dashboard..." });
 
-      const msg = data.message || "Dados atualizados.";
-      const itemErrors = data.itemErrors as Array<{ itemId: string; error: string }> | undefined;
+      const cacheRes = await fetch("/api/pluggy/cache", { method: "POST" });
+      const cacheData = await cacheRes.json();
 
-      if (itemErrors && itemErrors.length > 0) {
+      if (!cacheRes.ok || cacheData.error) {
         toast({
-          title: "Sincronização parcial",
-          description: `${msg} (${itemErrors.length} item(s) com erro)`,
+          title: "Sync OK, mas cache falhou",
+          description: cacheData.error || "Recarregue a página.",
+          variant: "destructive",
         });
       } else {
+        setLastSync(new Date().toLocaleString("pt-BR"));
+        const msg = data.message || "Dados atualizados.";
+        const itemErrors = data.itemErrors as Array<{ itemId: string; error: string }> | undefined;
+
         toast({
-          title: "Sincronização concluída",
-          description: msg,
+          title: itemErrors?.length ? "Sincronização parcial" : "Sincronização concluída",
+          description: itemErrors?.length ? `${msg} (${itemErrors.length} erro(s))` : msg,
         });
       }
+
+      // Recarregar a página para mostrar dados novos
+      window.location.reload();
     } catch (networkError) {
       toast({
         title: "Erro de rede",
-        description: networkError instanceof Error ? networkError.message : "Sem conexão com o servidor.",
+        description: networkError instanceof Error ? networkError.message : "Sem conexão.",
         variant: "destructive",
       });
     } finally {
@@ -78,7 +88,7 @@ export function Header() {
           className="gap-2 border-slate-700 text-slate-300 hover:text-white disabled:opacity-50"
         >
           <RefreshCw className={`h-4 w-4 ${syncing ? "animate-spin" : ""}`} />
-          <span className="hidden sm:inline">Sincronizar</span>
+          <span className="hidden sm:inline">{syncing ? "Sincronizando..." : "Sincronizar"}</span>
         </Button>
         <Button
           variant="ghost"
