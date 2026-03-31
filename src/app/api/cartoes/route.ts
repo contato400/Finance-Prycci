@@ -34,9 +34,11 @@ export async function GET(request: Request) {
              p.institution_name AS raw_institution,
              CASE
                WHEN p.institution_name != 'MeuPluggy' THEN p.institution_name
-               WHEN a.name ILIKE '%nubank%' OR a.name ILIKE '%nu pagamento%' THEN 'Nubank'
+               WHEN a.name ILIKE '%diogo%' OR a.name ILIKE '%tavares%' THEN 'Nubank'
+               WHEN a.name ILIKE '%gold%' OR a.name ILIKE '%nu pagamento%' OR a.name ILIKE '%nubank%' THEN 'Nubank'
+               WHEN a.name ILIKE '%company%' THEN 'Nubank Empresas'
+               WHEN a.name ILIKE '%sim visa%' OR a.name ILIKE '%caixa%' OR a.name ILIKE '%cef%' THEN 'Caixa Econômica Federal'
                WHEN a.name ILIKE '%inter%' THEN 'Banco Inter'
-               WHEN a.name ILIKE '%caixa%' OR a.name ILIKE '%cef%' OR a.name ILIKE '%sim visa%' THEN 'Caixa Econômica Federal'
                WHEN a.name ILIKE '%bradesco%' THEN 'Bradesco'
                WHEN a.name ILIKE '%itau%' OR a.name ILIKE '%itaú%' THEN 'Itaú'
                WHEN a.name ILIKE '%santander%' THEN 'Santander'
@@ -46,7 +48,6 @@ export async function GET(request: Request) {
       FROM accounts a
       JOIN pluggy_items p ON a.item_id = p.id
       WHERE a.type IN ('CREDIT', 'CREDIT_CARD')
-        AND NOT (a.balance = 0 AND COALESCE(a.credit_limit, 0) = 0)
       ORDER BY a.updated_at DESC`;
 
     const enrichedCards = cards.map((c) => {
