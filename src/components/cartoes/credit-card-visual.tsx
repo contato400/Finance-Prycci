@@ -2,6 +2,7 @@
 
 import { formatCurrency, calcPercentage } from "@/lib/utils";
 import { Wifi } from "lucide-react";
+import { BankAvatar } from "@/components/bank-avatar";
 
 interface CreditCardVisualProps {
   card: {
@@ -61,7 +62,10 @@ export function CreditCardVisual({ card, selected, onClick }: CreditCardVisualPr
 
         {/* Header do cartão */}
         <div className="relative flex items-center justify-between">
-          <p className="text-sm font-semibold text-white/90">{institutionName}</p>
+          <div className="flex items-center gap-2">
+            <BankAvatar bankName={institutionName} size={28} />
+            <p className="text-sm font-semibold text-white/90">{institutionName}</p>
+          </div>
           <Wifi className="h-5 w-5 rotate-90 text-white/60" />
         </div>
 

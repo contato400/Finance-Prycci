@@ -7,6 +7,7 @@ import { Progress } from "@/components/ui/progress";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Button } from "@/components/ui/button";
 import { PluggyWidget } from "@/components/pluggy/pluggy-widget";
+import { BankAvatar } from "@/components/bank-avatar";
 import { formatCurrency, calcPercentage, formatDate } from "@/lib/utils";
 import { useDateRange } from "@/contexts/date-range-context";
 import {
@@ -46,22 +47,6 @@ interface DashboardData {
   cachedAt?: string;
 }
 
-// Cores por banco (hex para avatares)
-const BANK_AVATAR_COLORS: Record<string, string> = {
-  nubank: "#820AD1",
-  "banco inter": "#FF7A00",
-  inter: "#FF7A00",
-  "caixa econômica federal": "#006CB7",
-  caixa: "#006CB7",
-  "nubank empresas": "#5D0099",
-};
-function getBankAvatarColor(name: string): string {
-  const lower = name.toLowerCase();
-  for (const [key, color] of Object.entries(BANK_AVATAR_COLORS)) {
-    if (lower.includes(key)) return color;
-  }
-  return "#64748b"; // slate-500
-}
 
 // Badge de forma de pagamento
 function PaymentBadge({ accountType, description }: { accountType: string; description: string }) {
@@ -257,17 +242,9 @@ export default function DashboardPage() {
 
 // Chip compacto de banco conectado
 function BankChip({ bank }: { bank: BankData }) {
-  const avatarColor = getBankAvatarColor(bank.name);
-  const initials = bank.name.split(" ").map((w) => w[0]).join("").slice(0, 2).toUpperCase();
-
   return (
     <div className="flex items-center gap-2 rounded-full border border-slate-800 bg-slate-900 px-3 py-1.5">
-      <div
-        className="flex h-6 w-6 items-center justify-center rounded-full text-[10px] font-bold text-white"
-        style={{ backgroundColor: avatarColor }}
-      >
-        {initials}
-      </div>
+      <BankAvatar bankName={bank.name} size={24} />
       <span className="text-sm font-medium text-white">{bank.name}</span>
       <div className={`h-2 w-2 rounded-full ${bank.status === "UPDATED" ? "bg-emerald-400" : "bg-yellow-400"}`} />
     </div>

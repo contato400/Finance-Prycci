@@ -7,6 +7,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { CategoryChart } from "@/components/contas/category-chart";
 import { formatCurrency, formatDate } from "@/lib/utils";
 import { useDateRange } from "@/contexts/date-range-context";
+import { BankAvatar } from "@/components/bank-avatar";
 import {
   Landmark,
   ChevronLeft,
@@ -138,9 +139,7 @@ export default function ContasPage() {
           >
             <CardContent className="p-5">
               <div className="flex items-center gap-3">
-                <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-slate-800">
-                  <Landmark className="h-5 w-5 text-emerald-500" />
-                </div>
+                <BankAvatar bankName={account.pluggy_items?.institution_name || account.name} size={40} />
                 <div className="min-w-0 flex-1">
                   <p className="truncate text-sm font-medium text-white">
                     {account.name}
