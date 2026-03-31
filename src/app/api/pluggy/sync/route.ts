@@ -104,16 +104,15 @@ export async function POST() {
       const [balRow, crRow, invRow, bnkRow] = await Promise.all([
         sql`SELECT COALESCE(SUM(balance),0)::float AS v FROM accounts WHERE type NOT IN ('CREDIT','CREDIT_CARD')`,
         sql`SELECT COALESCE(SUM(ABS(balance)),0)::float AS used, COALESCE(SUM(COALESCE(credit_limit,0)),0)::float AS lim FROM accounts WHERE type IN ('CREDIT','CREDIT_CARD')`,
-        sql`SELECT COALESCE(SUM(balance),0)::float AS v, COALESCE(SUM(amount_profit),0)::float AS profit FROM investments`,
+        sql`SELECT COALESCE(SUM(balance),0)::float AS v FROM investments`,
         sql`SELECT COUNT(*)::int AS v FROM pluggy_items`,
       ]);
       const tb = Number(balRow[0]?.v) || 0;
       const tcu = Number(crRow[0]?.used) || 0;
       const tcl = Number(crRow[0]?.lim) || 0;
       const ti = Number(invRow[0]?.v) || 0;
-      const tp = Number(invRow[0]?.profit) || 0;
       const cb = Number(bnkRow[0]?.v) || 0;
-      const cacheData = { totalBalance: tb, totalCreditUsed: tcu, totalCreditLimit: tcl, totalInvested: ti, totalProfit: tp, netBalance: tb + ti - tcu, connectedBanks: cb };
+      const cacheData = { totalBalance: tb, totalCreditUsed: tcu, totalCreditLimit: tcl, totalInvested: ti, netBalance: tb + ti - tcu, connectedBanks: cb };
       await sql`INSERT INTO dashboard_cache (id, data, updated_at) VALUES (1, ${JSON.stringify(cacheData)}::jsonb, NOW()) ON CONFLICT (id) DO UPDATE SET data = EXCLUDED.data, updated_at = NOW()`;
       log(`Cache OK: bal=${tb} cr=${tcu}/${tcl} inv=${ti}`);
     } catch (cacheErr) {
@@ -202,9 +201,9 @@ async function syncInvestments(pluggy: Pluggy, dbItem: { id: string; item_id: st
     const { results: invs } = await pluggy.fetchInvestments(dbItem.item_id);
     log(`  ${invs.length} inv`);
     for (const inv of invs) {
-      await sql`INSERT INTO investments (item_id, pluggy_investment_id, name, type, balance, quantity, value, amount_profit, updated_at)
-        VALUES (${dbItem.id}::uuid, ${inv.id}, ${inv.name}, ${inv.type}, ${inv.balance}, ${inv.quantity || 0}, ${inv.value || 0}, ${inv.amountProfit || 0}, now())
-        ON CONFLICT (pluggy_investment_id) DO UPDATE SET name = EXCLUDED.name, type = EXCLUDED.type, balance = EXCLUDED.balance, quantity = EXCLUDED.quantity, value = EXCLUDED.value, amount_profit = EXCLUDED.amount_profit, updated_at = now()`;
+      await sql`INSERT INTO investments (item_id, pluggy_investment_id, name, type, balance, quantity, value, updated_at)
+        VALUES (${dbItem.id}::uuid, ${inv.id}, ${inv.name}, ${inv.type}, ${inv.balance}, ${inv.quantity || 0}, ${inv.value || 0}, now())
+        ON CONFLICT (pluggy_investment_id) DO UPDATE SET name = EXCLUDED.name, type = EXCLUDED.type, balance = EXCLUDED.balance, quantity = EXCLUDED.quantity, value = EXCLUDED.value, updated_at = now()`;
       count++;
     }
   } catch (e) { log(`  Inv indisponível: ${e instanceof Error ? e.message : String(e)}`); }

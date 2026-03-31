@@ -22,7 +22,6 @@ export async function GET() {
       SELECT i.*, i.balance::float as balance,
              COALESCE(i.quantity, 0)::float as quantity,
              COALESCE(i.value, 0)::float as value,
-             COALESCE(i.amount_profit, 0)::float as amount_profit,
              p.institution_name
       FROM investments i
       JOIN pluggy_items p ON i.item_id = p.id
@@ -51,14 +50,10 @@ export async function GET() {
       .map(([institution, total]) => ({ institution, total }))
       .sort((a, b) => b.total - a.total);
 
-    const totalProfit = investments.reduce((s, i) => s + (Number(i.amount_profit) || 0), 0);
-
     const assets = investments.map((inv) => {
       const balance = Number(inv.balance) || 0;
       const value = Number(inv.value) || 0;
-      const amountProfit = Number(inv.amount_profit) || 0;
-      // Rentabilidade: usar amount_profit se disponível, senão calcular a partir de balance - value
-      const profit = amountProfit !== 0 ? amountProfit : (value > 0 ? balance - value : 0);
+      const profit = value > 0 ? balance - value : 0;
       const profitPct = value > 0 ? ((balance - value) / value) * 100 : 0;
 
       return {
@@ -69,6 +64,8 @@ export async function GET() {
         institution: inv.institution_name || "Desconhecido",
       };
     });
+
+    const totalProfit = assets.reduce((s, a) => s + a.profit, 0);
 
     return NextResponse.json({ totalInvested, totalProfit, byClass, byInstitution, assets });
   } catch (error) {

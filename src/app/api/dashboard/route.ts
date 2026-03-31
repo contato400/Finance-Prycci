@@ -30,7 +30,7 @@ export async function GET(request: Request) {
     if (!cacheRows.length || !cacheRows[0].data || Object.keys(cacheRows[0].data).length === 0) {
       return NextResponse.json({
         totalBalance: 0, totalCreditUsed: 0, totalCreditLimit: 0,
-        totalInvested: 0, totalProfit: 0, netBalance: 0, banks: [], connectedBanks: 0,
+        totalInvested: 0, netBalance: 0, banks: [], connectedBanks: 0,
         periodIncome: 0, periodExpenses: 0, periodNet: 0, topTransactions: [],
         needsSync: true, message: "Clique em Sincronizar para carregar seus dados.",
       });
@@ -44,11 +44,9 @@ export async function GET(request: Request) {
     // Investimentos: query direto da tabela para evitar cache desatualizado
     const invRow = await sql`
       SELECT COALESCE(SUM(balance), 0)::float AS total,
-             COALESCE(SUM(amount_profit), 0)::float AS profit,
              COUNT(*)::int AS count
       FROM investments`;
     const totalInvested = num(invRow[0]?.total);
-    const totalProfit = num(invRow[0]?.profit);
     const investmentCount = num(invRow[0]?.count);
     const netBalance = totalBalance + totalInvested - totalCreditUsed;
 
@@ -122,7 +120,7 @@ export async function GET(request: Request) {
     }));
 
     return NextResponse.json({
-      totalBalance, totalCreditUsed, totalCreditLimit, totalInvested, totalProfit, investmentCount, netBalance,
+      totalBalance, totalCreditUsed, totalCreditLimit, totalInvested, investmentCount, netBalance,
       banks: banks.map((b) => ({
         name: b.banco,
         status: b.status,

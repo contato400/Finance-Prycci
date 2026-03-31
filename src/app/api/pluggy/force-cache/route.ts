@@ -23,7 +23,7 @@ export async function POST() {
       sql`SELECT COALESCE(SUM(ABS(balance)), 0)::float AS total_used,
                  COALESCE(SUM(COALESCE(credit_limit, 0)), 0)::float AS total_limit
           FROM accounts WHERE type IN ('CREDIT', 'CREDIT_CARD')`,
-      sql`SELECT COALESCE(SUM(balance), 0)::float AS total, COALESCE(SUM(amount_profit), 0)::float AS profit, COUNT(*)::int AS count FROM investments`,
+      sql`SELECT COALESCE(SUM(balance), 0)::float AS total, COUNT(*)::int AS count FROM investments`,
       sql`SELECT COUNT(*)::int AS total FROM pluggy_items`,
       sql`SELECT a.type, a.balance::float AS balance, COALESCE(a.credit_limit,0)::float AS credit_limit,
                  p.institution_name
@@ -34,7 +34,6 @@ export async function POST() {
     const totalCreditUsed = num(creditRow[0]?.total_used);
     const totalCreditLimit = num(creditRow[0]?.total_limit);
     const totalInvested = num(invRow[0]?.total);
-    const totalProfit = num(invRow[0]?.profit);
     const investmentCount = num(invRow[0]?.count);
     const connectedBanks = num(bankCount[0]?.total);
     const netBalance = totalBalance + totalInvested - totalCreditUsed;
@@ -58,7 +57,6 @@ export async function POST() {
       totalCreditUsed,
       totalCreditLimit,
       totalInvested,
-      totalProfit,
       investmentCount,
       netBalance,
       connectedBanks,
