@@ -23,7 +23,7 @@ export async function POST() {
       sql`SELECT COALESCE(SUM(ABS(balance)), 0)::float AS total_used,
                  COALESCE(SUM(COALESCE(credit_limit, 0)), 0)::float AS total_limit
           FROM accounts WHERE type IN ('CREDIT', 'CREDIT_CARD')`,
-      sql`SELECT COALESCE(SUM(balance), 0)::float AS total FROM investments`,
+      sql`SELECT COALESCE(SUM(balance), 0)::float AS total, COALESCE(SUM(amount_profit), 0)::float AS profit FROM investments`,
       sql`SELECT COUNT(*)::int AS total FROM pluggy_items`,
       sql`SELECT a.type, a.balance::float AS balance, COALESCE(a.credit_limit,0)::float AS credit_limit,
                  p.institution_name
@@ -34,8 +34,9 @@ export async function POST() {
     const totalCreditUsed = num(creditRow[0]?.total_used);
     const totalCreditLimit = num(creditRow[0]?.total_limit);
     const totalInvested = num(invRow[0]?.total);
+    const totalProfit = num(invRow[0]?.profit);
     const connectedBanks = num(bankCount[0]?.total);
-    const netBalance = totalBalance - totalCreditUsed;
+    const netBalance = totalBalance + totalInvested - totalCreditUsed;
 
     // Instituições agrupadas
     const instMap = new Map<string, { name: string; balance: number; creditLimit: number; creditUsed: number }>();
@@ -56,6 +57,7 @@ export async function POST() {
       totalCreditUsed,
       totalCreditLimit,
       totalInvested,
+      totalProfit,
       netBalance,
       connectedBanks,
       institutions: Array.from(instMap.values()),

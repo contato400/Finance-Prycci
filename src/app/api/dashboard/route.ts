@@ -30,7 +30,7 @@ export async function GET(request: Request) {
     if (!cacheRows.length || !cacheRows[0].data || Object.keys(cacheRows[0].data).length === 0) {
       return NextResponse.json({
         totalBalance: 0, totalCreditUsed: 0, totalCreditLimit: 0,
-        totalInvested: 0, netBalance: 0, banks: [], connectedBanks: 0,
+        totalInvested: 0, totalProfit: 0, netBalance: 0, banks: [], connectedBanks: 0,
         periodIncome: 0, periodExpenses: 0, periodNet: 0, topTransactions: [],
         needsSync: true, message: "Clique em Sincronizar para carregar seus dados.",
       });
@@ -41,7 +41,8 @@ export async function GET(request: Request) {
     const totalCreditUsed = num(c.totalCreditUsed ?? c.total_credit_used);
     const totalCreditLimit = num(c.totalCreditLimit ?? c.total_limit);
     const totalInvested = num(c.totalInvested ?? c.total_investments);
-    const netBalance = totalBalance - totalCreditUsed;
+    const totalProfit = num(c.totalProfit ?? c.total_profit);
+    const netBalance = totalBalance + totalInvested - totalCreditUsed;
 
     // 2. Bancos conectados — sem duplicatas, apenas banco + status
     const banks = await sql`
@@ -113,7 +114,7 @@ export async function GET(request: Request) {
     }));
 
     return NextResponse.json({
-      totalBalance, totalCreditUsed, totalCreditLimit, totalInvested, netBalance,
+      totalBalance, totalCreditUsed, totalCreditLimit, totalInvested, totalProfit, netBalance,
       banks: banks.map((b) => ({
         name: b.banco,
         status: b.status,

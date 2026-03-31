@@ -35,6 +35,7 @@ interface DashboardData {
   totalCreditUsed: number;
   totalCreditLimit: number;
   totalInvested: number;
+  totalProfit: number;
   netBalance: number;
   banks: BankData[];
   connectedBanks: number;
@@ -87,7 +88,10 @@ export default function DashboardPage() {
   const totalBalance = data?.totalBalance ?? 0;
   const totalCreditUsed = data?.totalCreditUsed ?? 0;
   const totalCreditLimit = data?.totalCreditLimit ?? 0;
+  const totalCreditAvailable = Math.max(totalCreditLimit - totalCreditUsed, 0);
   const creditPercent = calcPercentage(totalCreditUsed, totalCreditLimit);
+  const totalInvested = data?.totalInvested ?? 0;
+  const totalProfit = data?.totalProfit ?? 0;
 
   return (
     <div className="space-y-6">
@@ -131,6 +135,8 @@ export default function DashboardPage() {
         {loading ? Array.from({ length: 4 }).map((_, i) => <Skeleton key={i} className="h-32 rounded-lg" />) : (
           <>
             <MiniCard title="Saldo em Contas" value={formatCurrency(totalBalance)} icon={<Wallet className="h-5 w-5 text-emerald-500" />} />
+
+            {/* Crédito Utilizado */}
             <Card className="border-slate-800 bg-slate-900">
               <CardHeader className="flex flex-row items-center justify-between pb-2">
                 <CardTitle className="text-sm font-medium text-slate-400">Crédito Utilizado</CardTitle>
@@ -140,10 +146,29 @@ export default function DashboardPage() {
                 <div className="text-2xl font-bold text-white">{formatCurrency(totalCreditUsed)}</div>
                 <p className="mt-1 text-xs text-slate-500">de {formatCurrency(totalCreditLimit)} limite</p>
                 <Progress value={creditPercent} className={`mt-3 h-2 ${creditPercent > 70 ? "[&>div]:bg-red-500" : creditPercent > 50 ? "[&>div]:bg-yellow-500" : "[&>div]:bg-emerald-500"}`} />
-                <p className={`mt-1 text-xs ${creditPercent > 70 ? "text-red-400" : "text-slate-500"}`}>{creditPercent}% utilizado</p>
+                <div className="mt-1 flex items-center justify-between">
+                  <p className={`text-xs ${creditPercent > 70 ? "text-red-400" : "text-slate-500"}`}>{creditPercent}% utilizado</p>
+                  <p className="text-xs text-emerald-400">{formatCurrency(totalCreditAvailable)} disponível</p>
+                </div>
               </CardContent>
             </Card>
-            <MiniCard title="Total Investido" value={formatCurrency(data?.totalInvested ?? 0)} icon={<TrendingUp className="h-5 w-5 text-blue-500" />} />
+
+            {/* Total Investido */}
+            <Card className="border-slate-800 bg-slate-900">
+              <CardHeader className="flex flex-row items-center justify-between pb-2">
+                <CardTitle className="text-sm font-medium text-slate-400">Total Investido</CardTitle>
+                <TrendingUp className="h-5 w-5 text-blue-500" />
+              </CardHeader>
+              <CardContent>
+                <div className="text-2xl font-bold text-white">{formatCurrency(totalInvested)}</div>
+                {totalProfit !== 0 && (
+                  <p className={`mt-1 text-xs ${totalProfit > 0 ? "text-emerald-400" : "text-red-400"}`}>
+                    {totalProfit > 0 ? "+" : ""}{formatCurrency(totalProfit)} rendimento
+                  </p>
+                )}
+              </CardContent>
+            </Card>
+
             <MiniCard title="Saldo Líquido" value={formatCurrency(data?.netBalance ?? 0)} icon={<DollarSign className="h-5 w-5 text-emerald-500" />} color={(data?.netBalance ?? 0) >= 0 ? "text-emerald-400" : "text-red-400"} />
           </>
         )}
