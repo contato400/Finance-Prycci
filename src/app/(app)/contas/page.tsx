@@ -6,6 +6,7 @@ import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { CategoryChart } from "@/components/contas/category-chart";
 import { formatCurrency, formatDate } from "@/lib/utils";
+import { useDateRange } from "@/contexts/date-range-context";
 import {
   Landmark,
   ChevronLeft,
@@ -52,10 +53,13 @@ export default function ContasPage() {
   const [filter, setFilter] = useState<FilterType>("ALL");
   const [selectedAccount, setSelectedAccount] = useState<string | null>(null);
   const [page, setPage] = useState(1);
+  const { startStr, endStr, label: periodLabel } = useDateRange();
 
   const fetchData = useCallback(async () => {
     setLoading(true);
     const params = new URLSearchParams();
+    params.set("start", startStr);
+    params.set("end", endStr);
     if (filter !== "ALL") params.set("type", filter);
     if (selectedAccount) {
       params.set("accountId", selectedAccount);
@@ -70,7 +74,7 @@ export default function ContasPage() {
     } finally {
       setLoading(false);
     }
-  }, [filter, selectedAccount, page]);
+  }, [filter, selectedAccount, page, startStr, endStr]);
 
   useEffect(() => {
     fetchData();
@@ -182,7 +186,7 @@ export default function ContasPage() {
         <Card className="border-slate-800 bg-slate-900">
           <CardHeader className="flex flex-row items-center justify-between">
             <CardTitle className="text-white">
-              Extrato — Últimos 30 dias
+              Movimentações • {periodLabel}
             </CardTitle>
             <span className="text-xs text-slate-500">
               {data.totalTransactions} transações
@@ -284,7 +288,7 @@ export default function ContasPage() {
       {/* Gráfico de gastos por categoria */}
       <Card className="border-slate-800 bg-slate-900">
         <CardHeader>
-          <CardTitle className="text-white">Gastos por Categoria — Últimos 30 dias</CardTitle>
+          <CardTitle className="text-white">Gastos por Categoria • {periodLabel}</CardTitle>
         </CardHeader>
         <CardContent>
           <CategoryChart data={data?.categoryData || []} />

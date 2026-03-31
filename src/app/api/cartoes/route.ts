@@ -22,6 +22,9 @@ export async function GET(request: Request) {
 
     const { searchParams } = new URL(request.url);
     const cardId = searchParams.get("cardId");
+    const now = new Date();
+    const start = searchParams.get("start") ?? new Date(now.getFullYear(), now.getMonth(), 1).toISOString().split("T")[0];
+    const end = searchParams.get("end") ?? new Date(now.getFullYear(), now.getMonth() + 1, 0).toISOString().split("T")[0];
 
     const cards = await sql`
       SELECT a.id, a.pluggy_account_id, a.name, a.type,
@@ -54,13 +57,11 @@ export async function GET(request: Request) {
 
     let transactions = null;
     if (cardId) {
-      const thirtyDaysAgo = new Date();
-      thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
       const rawTx = await sql`
         SELECT *, amount::float as amount FROM transactions
         WHERE account_id = ${cardId}::uuid
-          AND date >= ${thirtyDaysAgo.toISOString().split("T")[0]}
-        ORDER BY date DESC LIMIT 30`;
+          AND date >= ${start} AND date <= ${end}
+        ORDER BY date DESC LIMIT 50`;
       transactions = rawTx.map((tx) => ({ ...tx, category: translateCategory(tx.category) }));
     }
 

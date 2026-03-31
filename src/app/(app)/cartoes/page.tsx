@@ -5,6 +5,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
 import { CreditCardVisual } from "@/components/cartoes/credit-card-visual";
 import { formatCurrency, formatDate, calcPercentage } from "@/lib/utils";
+import { useDateRange } from "@/contexts/date-range-context";
 import {
   CreditCard,
   ArrowUpRight,
@@ -49,9 +50,12 @@ export default function CartoesPage() {
   const [data, setData] = useState<CartoesData | null>(null);
   const [loading, setLoading] = useState(true);
   const [selectedCard, setSelectedCard] = useState<string | null>(null);
+  const { startStr, endStr } = useDateRange();
 
   const fetchData = useCallback(async () => {
     const params = new URLSearchParams();
+    params.set("start", startStr);
+    params.set("end", endStr);
     if (selectedCard) params.set("cardId", selectedCard);
     try {
       const res = await fetch(`/api/cartoes?${params}`);
@@ -62,7 +66,7 @@ export default function CartoesPage() {
     } finally {
       setLoading(false);
     }
-  }, [selectedCard]);
+  }, [selectedCard, startStr, endStr]);
 
   useEffect(() => {
     fetchData();

@@ -3,6 +3,7 @@ import { redirect } from "next/navigation";
 import { authOptions } from "@/lib/auth";
 import { Sidebar } from "@/components/layout/sidebar";
 import { Header } from "@/components/layout/header";
+import { DateRangeProvider } from "@/contexts/date-range-context";
 
 // Layout protegido — redireciona para login se não autenticado
 export default async function AppLayout({
@@ -17,12 +18,14 @@ export default async function AppLayout({
   }
 
   return (
-    <div className="min-h-screen bg-slate-950">
-      <Sidebar />
-      <div className="lg:pl-64">
-        <Header />
-        <main className="p-4 md:p-6">{children}</main>
+    <DateRangeProvider>
+      <div className="min-h-screen bg-slate-950">
+        <Sidebar />
+        <div className="lg:pl-64">
+          <Header />
+          <main className="p-4 md:p-6">{children}</main>
+        </div>
       </div>
-    </div>
+    </DateRangeProvider>
   );
 }

@@ -20,6 +20,11 @@ export async function GET(request: Request) {
     const page = parseInt(searchParams.get("page") || "1");
     const pageSize = 20;
 
+    // Período: default = mês atual
+    const now = new Date();
+    const start = searchParams.get("start") ?? new Date(now.getFullYear(), now.getMonth(), 1).toISOString().split("T")[0];
+    const end = searchParams.get("end") ?? new Date(now.getFullYear(), now.getMonth() + 1, 0).toISOString().split("T")[0];
+
     // Contas bancárias — exclui CREDIT/CREDIT_CARD (esses vão para /cartoes)
     const accounts = typeFilter
       ? await sql`
@@ -43,27 +48,20 @@ export async function GET(request: Request) {
     let totalTransactions = 0;
 
     if (accountId) {
-      const thirtyDaysAgo = new Date();
-      thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
-      const fromDate = thirtyDaysAgo.toISOString().split("T")[0];
-
       const [{ total }] = await sql`
         SELECT count(*)::int as total FROM transactions
-        WHERE account_id = ${accountId}::uuid AND date >= ${fromDate}`;
+        WHERE account_id = ${accountId}::uuid AND date >= ${start} AND date <= ${end}`;
       totalTransactions = Number(total) || 0;
 
       const offset = (page - 1) * pageSize;
       const rawTx = await sql`
         SELECT *, amount::float as amount FROM transactions
-        WHERE account_id = ${accountId}::uuid AND date >= ${fromDate}
+        WHERE account_id = ${accountId}::uuid AND date >= ${start} AND date <= ${end}
         ORDER BY date DESC LIMIT ${pageSize} OFFSET ${offset}`;
       transactions = rawTx.map((tx) => ({ ...tx, category: translateCategory(tx.category) }));
     }
 
-    // Gastos por categoria (últimos 30 dias, débitos)
-    const thirtyDaysAgo = new Date();
-    thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
-    const fromDate30 = thirtyDaysAgo.toISOString().split("T")[0];
+    // Gastos por categoria no período
     const accountIds = accounts.map((a) => a.id);
 
     let categoryData: Array<{ category: string; total: number }> = [];
@@ -72,7 +70,8 @@ export async function GET(request: Request) {
         SELECT COALESCE(category, 'Sem categoria') as category,
                SUM(ABS(amount))::float as total
         FROM transactions
-        WHERE account_id = ANY(${accountIds}::uuid[]) AND type = 'DEBIT' AND date >= ${fromDate30}
+        WHERE account_id = ANY(${accountIds}::uuid[]) AND type = 'DEBIT'
+          AND date >= ${start} AND date <= ${end}
         GROUP BY COALESCE(category, 'Sem categoria')
         ORDER BY total DESC LIMIT 10`;
       categoryData = catRows.map((r) => ({

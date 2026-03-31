@@ -8,6 +8,7 @@ import { PluggyWidget } from "@/components/pluggy/pluggy-widget";
 import { BalanceChart } from "@/components/dashboard/balance-chart";
 import { InstitutionCard } from "@/components/dashboard/institution-card";
 import { formatCurrency, calcPercentage } from "@/lib/utils";
+import { useDateRange } from "@/contexts/date-range-context";
 import {
   Wallet,
   CreditCard,
@@ -40,10 +41,13 @@ export default function DashboardPage() {
   const [data, setData] = useState<DashboardData | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const { startStr, endStr } = useDateRange();
 
   useEffect(() => {
+    setLoading(true);
+    setError(null);
     const controller = new AbortController();
-    fetch("/api/dashboard", { signal: controller.signal })
+    fetch(`/api/dashboard?start=${startStr}&end=${endStr}`, { signal: controller.signal })
       .then(async (res) => {
         const json = await res.json();
         if (!res.ok || json.error) {
@@ -57,7 +61,7 @@ export default function DashboardPage() {
       })
       .finally(() => setLoading(false));
     return () => controller.abort();
-  }, []);
+  }, [startStr, endStr]);
 
   // Métricas disponíveis mesmo durante loading parcial
   const totalBalance = data?.totalBalance ?? 0;
