@@ -1,17 +1,37 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import Link from "next/link";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Progress } from "@/components/ui/progress";
 import { Skeleton } from "@/components/ui/skeleton";
+import { Button } from "@/components/ui/button";
 import { PluggyWidget } from "@/components/pluggy/pluggy-widget";
-import { InstitutionCard } from "@/components/dashboard/institution-card";
-import { formatCurrency, calcPercentage } from "@/lib/utils";
+import { formatCurrency, calcPercentage, formatDate } from "@/lib/utils";
 import { useDateRange } from "@/contexts/date-range-context";
 import {
   Wallet, CreditCard, TrendingUp, DollarSign, Building2,
-  AlertCircle, ArrowDownLeft, ArrowUpRight, Scale,
+  AlertCircle, ArrowDownLeft, ArrowUpRight, Scale, ChevronRight,
 } from "lucide-react";
+
+interface BankData {
+  name: string;
+  status: string;
+  totalContas: number;
+  balance: number;
+  creditUsed: number;
+  creditLimit: number;
+}
+
+interface TopTransaction {
+  id: string;
+  description: string;
+  valor: number;
+  date: string;
+  category: string;
+  accountType: string;
+  banco: string;
+}
 
 interface DashboardData {
   totalBalance: number;
@@ -19,15 +39,46 @@ interface DashboardData {
   totalCreditLimit: number;
   totalInvested: number;
   netBalance: number;
-  institutions: Array<{ name: string; balance: number; creditLimit: number; creditUsed: number }>;
+  banks: BankData[];
   connectedBanks: number;
   periodIncome: number;
   periodExpenses: number;
   periodNet: number;
-  topCategories: Array<{ category: string; total: number }>;
+  topTransactions: TopTransaction[];
   needsSync?: boolean;
   message?: string;
   cachedAt?: string;
+}
+
+// Cores por banco
+const BANK_COLORS: Record<string, string> = {
+  nubank: "bg-purple-600", nu: "bg-purple-600",
+  inter: "bg-orange-500", itaú: "bg-blue-600", itau: "bg-blue-600",
+  bradesco: "bg-red-600", santander: "bg-red-500",
+  caixa: "bg-blue-500", "banco do brasil": "bg-yellow-500",
+  c6: "bg-gray-700", btg: "bg-blue-800", xp: "bg-slate-700",
+};
+function getBankColor(name: string): string {
+  const lower = name.toLowerCase();
+  for (const [key, color] of Object.entries(BANK_COLORS)) {
+    if (lower.includes(key)) return color;
+  }
+  return "bg-slate-600";
+}
+
+// Badge de forma de pagamento
+function PaymentBadge({ accountType, description }: { accountType: string; description: string }) {
+  const desc = description.toUpperCase();
+  if (accountType === "CREDIT" || accountType === "CREDIT_CARD") {
+    return <span className="rounded-full bg-purple-500/15 px-2 py-0.5 text-[10px] font-medium text-purple-400">Crédito</span>;
+  }
+  if (desc.includes("PIX")) {
+    return <span className="rounded-full bg-emerald-500/15 px-2 py-0.5 text-[10px] font-medium text-emerald-400">Pix</span>;
+  }
+  if (desc.includes("BOLETO") || desc.includes("SLIP")) {
+    return <span className="rounded-full bg-orange-500/15 px-2 py-0.5 text-[10px] font-medium text-orange-400">Boleto</span>;
+  }
+  return <span className="rounded-full bg-blue-500/15 px-2 py-0.5 text-[10px] font-medium text-blue-400">Débito</span>;
 }
 
 export default function DashboardPage() {
@@ -58,7 +109,6 @@ export default function DashboardPage() {
 
   return (
     <div className="space-y-6">
-      {/* Header */}
       <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
         <div>
           <h1 className="text-2xl font-bold text-white">Dashboard</h1>
@@ -94,11 +144,9 @@ export default function DashboardPage() {
         </p>
       )}
 
-      {/* Saldos atuais (do cache — não mudam com período) */}
+      {/* Saldos atuais */}
       <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-        {loading ? (
-          Array.from({ length: 4 }).map((_, i) => <Skeleton key={i} className="h-32 rounded-lg" />)
-        ) : (
+        {loading ? Array.from({ length: 4 }).map((_, i) => <Skeleton key={i} className="h-32 rounded-lg" />) : (
           <>
             <MiniCard title="Saldo em Contas" value={formatCurrency(totalBalance)} icon={<Wallet className="h-5 w-5 text-emerald-500" />} />
             <Card className="border-slate-800 bg-slate-900">
@@ -119,33 +167,24 @@ export default function DashboardPage() {
         )}
       </div>
 
-      {/* Movimentações do período (mudam com DateRangePicker) */}
+      {/* Movimentações do período */}
       {!loading && !data?.needsSync && (
         <div className="grid gap-4 sm:grid-cols-3">
           <Card className="border-slate-800 bg-slate-900">
             <CardContent className="p-5">
-              <div className="flex items-center gap-2">
-                <ArrowDownLeft className="h-4 w-4 text-emerald-400" />
-                <p className="text-xs text-slate-500">Receitas • {periodLabel}</p>
-              </div>
+              <div className="flex items-center gap-2"><ArrowDownLeft className="h-4 w-4 text-emerald-400" /><p className="text-xs text-slate-500">Receitas • {periodLabel}</p></div>
               <p className="mt-2 text-2xl font-bold text-emerald-400">{formatCurrency(data?.periodIncome ?? 0)}</p>
             </CardContent>
           </Card>
           <Card className="border-slate-800 bg-slate-900">
             <CardContent className="p-5">
-              <div className="flex items-center gap-2">
-                <ArrowUpRight className="h-4 w-4 text-red-400" />
-                <p className="text-xs text-slate-500">Gastos • {periodLabel}</p>
-              </div>
+              <div className="flex items-center gap-2"><ArrowUpRight className="h-4 w-4 text-red-400" /><p className="text-xs text-slate-500">Gastos • {periodLabel}</p></div>
               <p className="mt-2 text-2xl font-bold text-red-400">{formatCurrency(data?.periodExpenses ?? 0)}</p>
             </CardContent>
           </Card>
           <Card className="border-slate-800 bg-slate-900">
             <CardContent className="p-5">
-              <div className="flex items-center gap-2">
-                <Scale className="h-4 w-4 text-slate-400" />
-                <p className="text-xs text-slate-500">Resultado • {periodLabel}</p>
-              </div>
+              <div className="flex items-center gap-2"><Scale className="h-4 w-4 text-slate-400" /><p className="text-xs text-slate-500">Resultado • {periodLabel}</p></div>
               <p className={`mt-2 text-2xl font-bold ${(data?.periodNet ?? 0) >= 0 ? "text-emerald-400" : "text-red-400"}`}>
                 {(data?.periodNet ?? 0) >= 0 ? "+" : ""}{formatCurrency(data?.periodNet ?? 0)}
               </p>
@@ -154,21 +193,36 @@ export default function DashboardPage() {
         </div>
       )}
 
-      {/* Top categorias do período */}
-      {!loading && data?.topCategories && data.topCategories.length > 0 && (
+      {/* Top 10 transações individuais */}
+      {!loading && data?.topTransactions && data.topTransactions.length > 0 && (
         <Card className="border-slate-800 bg-slate-900">
-          <CardHeader>
+          <CardHeader className="flex flex-row items-center justify-between">
             <CardTitle className="text-sm text-white">Maiores Gastos • {periodLabel}</CardTitle>
+            <Link href="/contas">
+              <Button variant="ghost" size="sm" className="gap-1 text-xs text-slate-400 hover:text-white">
+                Ver todas <ChevronRight className="h-3 w-3" />
+              </Button>
+            </Link>
           </CardHeader>
           <CardContent>
             <div className="space-y-2">
-              {data.topCategories.map((cat, i) => (
-                <div key={cat.category} className="flex items-center justify-between">
-                  <div className="flex items-center gap-2">
-                    <span className="text-xs text-slate-600">{i + 1}.</span>
-                    <span className="text-sm text-slate-300">{cat.category}</span>
+              {data.topTransactions.map((tx, i) => (
+                <div key={tx.id} className="flex items-center gap-3 rounded-lg px-2 py-2 transition-colors hover:bg-slate-800/50">
+                  <span className="w-5 text-right text-xs font-medium text-slate-600">{i + 1}.</span>
+                  <div className="min-w-0 flex-1">
+                    <div className="flex items-center gap-2">
+                      <p className="truncate text-sm text-white" title={tx.description}>
+                        {tx.description.length > 35 ? tx.description.slice(0, 35) + "…" : tx.description}
+                      </p>
+                      <PaymentBadge accountType={tx.accountType} description={tx.description} />
+                    </div>
+                    <div className="mt-0.5 flex items-center gap-2">
+                      <span className="text-[10px] text-slate-600">{tx.banco}</span>
+                      <span className="text-[10px] text-slate-700">•</span>
+                      <span className="text-[10px] text-slate-600">{formatDate(tx.date)}</span>
+                    </div>
                   </div>
-                  <span className="text-sm font-medium text-white">{formatCurrency(cat.total)}</span>
+                  <span className="shrink-0 text-sm font-medium text-red-400">{formatCurrency(tx.valor)}</span>
                 </div>
               ))}
             </div>
@@ -176,7 +230,7 @@ export default function DashboardPage() {
         </Card>
       )}
 
-      {/* Bancos conectados */}
+      {/* Bancos Conectados */}
       <div>
         <div className="mb-4 flex items-center gap-2">
           <Building2 className="h-5 w-5 text-slate-400" />
@@ -185,22 +239,77 @@ export default function DashboardPage() {
         </div>
         {loading ? (
           <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-            {Array.from({ length: 3 }).map((_, i) => <Skeleton key={i} className="h-40 rounded-lg" />)}
+            {Array.from({ length: 3 }).map((_, i) => <Skeleton key={i} className="h-44 rounded-lg" />)}
           </div>
-        ) : data?.institutions && data.institutions.length > 0 ? (
+        ) : data?.banks && data.banks.length > 0 ? (
           <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-            {data.institutions.map((inst) => <InstitutionCard key={inst.name} institution={inst} />)}
+            {data.banks.map((bank) => <BankCard key={bank.name} bank={bank} />)}
           </div>
         ) : (
           <Card className="border-slate-800 bg-slate-900">
             <CardContent className="flex flex-col items-center justify-center py-12">
               <Building2 className="mb-4 h-12 w-12 text-slate-600" />
-              <p className="text-sm text-slate-400">Nenhum banco conectado. Clique em &quot;Adicionar Banco&quot; para começar.</p>
+              <p className="text-sm text-slate-400">Nenhum banco conectado. Clique em &quot;Adicionar Banco&quot;.</p>
             </CardContent>
           </Card>
         )}
       </div>
     </div>
+  );
+}
+
+// Card de banco conectado
+function BankCard({ bank }: { bank: BankData }) {
+  const color = getBankColor(bank.name);
+  const initials = bank.name.split(" ").map((w) => w[0]).join("").slice(0, 2).toUpperCase();
+  const creditPercent = calcPercentage(bank.creditUsed, bank.creditLimit);
+
+  return (
+    <Card className="border-slate-800 bg-slate-900 transition-colors hover:border-slate-700">
+      <CardContent className="p-5">
+        <div className="flex items-center gap-3">
+          <div className={`flex h-10 w-10 items-center justify-center rounded-lg text-sm font-bold text-white ${color}`}>
+            {initials}
+          </div>
+          <div className="min-w-0 flex-1">
+            <p className="truncate text-sm font-medium text-white">{bank.name}</p>
+            <div className="flex items-center gap-1.5">
+              <div className={`h-1.5 w-1.5 rounded-full ${bank.status === "UPDATED" ? "bg-emerald-400" : "bg-yellow-400"}`} />
+              <span className="text-[10px] text-slate-500">{bank.status === "UPDATED" ? "Conectado" : bank.status}</span>
+              <span className="text-[10px] text-slate-700">•</span>
+              <span className="text-[10px] text-slate-500">{bank.totalContas} conta{bank.totalContas !== 1 ? "s" : ""}</span>
+            </div>
+          </div>
+        </div>
+
+        <div className="mt-4 space-y-2">
+          {bank.balance !== 0 && (
+            <div className="flex items-center justify-between">
+              <span className="text-xs text-slate-400">Saldo</span>
+              <span className={`text-sm font-semibold ${bank.balance >= 0 ? "text-emerald-400" : "text-red-400"}`}>
+                {formatCurrency(bank.balance)}
+              </span>
+            </div>
+          )}
+
+          {bank.creditLimit > 0 && (
+            <>
+              <div className="flex items-center justify-between">
+                <span className="text-xs text-slate-400">Crédito usado</span>
+                <span className="text-sm text-red-400">{formatCurrency(bank.creditUsed)}</span>
+              </div>
+              <Progress
+                value={creditPercent}
+                className={`h-1.5 ${creditPercent > 80 ? "[&>div]:bg-red-500" : creditPercent > 50 ? "[&>div]:bg-yellow-500" : "[&>div]:bg-emerald-500"}`}
+              />
+              <p className="text-right text-[10px] text-slate-600">
+                {creditPercent}% de {formatCurrency(bank.creditLimit)}
+              </p>
+            </>
+          )}
+        </div>
+      </CardContent>
+    </Card>
   );
 }
 
