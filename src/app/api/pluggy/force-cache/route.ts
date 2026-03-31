@@ -1,4 +1,4 @@
-import { NextResponse } from "next/server";
+// force-cache: sem import de NextResponse — usar Response.json nativo
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import sql from "@/lib/db";
@@ -14,7 +14,7 @@ export async function POST() {
   try {
     const session = await getServerSession(authOptions);
     if (!session) {
-      return NextResponse.json({ error: "Não autorizado" }, { status: 401 });
+      return Response.json({ error: "Não autorizado" }, { status: 401 });
     }
 
     // Calcular tudo com queries simples separadas (mais confiável que jsonb_build_object com subqueries)
@@ -71,12 +71,13 @@ export async function POST() {
     // Verificar que foi salvo
     const verify = await sql`SELECT data FROM dashboard_cache WHERE id = 1`;
 
-    return NextResponse.json({
+    return Response.json({
       message: "Cache atualizado com sucesso",
       saved: cacheData,
       verified: verify[0]?.data || null,
     });
   } catch (error) {
-    return NextResponse.json({ error: error instanceof Error ? error.message : String(error) }, { status: 500 });
+    console.error("FORCE-CACHE ERROR:", error instanceof Error ? error.message : String(error));
+    return Response.json({ error: error instanceof Error ? error.message : String(error) }, { status: 500 });
   }
 }

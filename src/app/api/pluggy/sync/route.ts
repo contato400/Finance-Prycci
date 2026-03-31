@@ -1,4 +1,3 @@
-import { NextResponse } from "next/server";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import { createPluggyClient } from "@/lib/pluggy/client";
@@ -8,6 +7,7 @@ import type { Transaction as PluggyTransaction } from "pluggy-sdk";
 type LogFn = (msg: string) => void;
 type Pluggy = ReturnType<typeof createPluggyClient>;
 
+// IMPORTANTE: todo retorno deve ser Response.json() — nunca texto puro
 export async function POST() {
   const logs: string[] = [];
   const log: LogFn = (msg) => { logs.push(`[${new Date().toISOString()}] ${msg}`); };
@@ -15,26 +15,32 @@ export async function POST() {
   try {
     const session = await getServerSession(authOptions);
     if (!session) {
-      return NextResponse.json({ error: "Não autorizado" }, { status: 401 });
+      return Response.json({ error: "Não autorizado" }, { status: 401 });
     }
 
-    if (!(process.env.PLUGGY_CLIENT_ID || "").trim()) {
-      return NextResponse.json({ error: "PLUGGY_CLIENT_ID não configurado", logs }, { status: 500 });
+    const pluggyId = (process.env.PLUGGY_CLIENT_ID || "").trim();
+    const pluggySecret = (process.env.PLUGGY_CLIENT_SECRET || "").trim();
+    const dbUrl = (process.env.DATABASE_URL || "").trim();
+
+    if (!pluggyId || !pluggySecret) {
+      return Response.json({ error: "PLUGGY_CLIENT_ID/SECRET não configurados", logs }, { status: 500 });
     }
-    if (!(process.env.DATABASE_URL || "").trim()) {
-      return NextResponse.json({ error: "DATABASE_URL não configurada", logs }, { status: 500 });
+    if (!dbUrl) {
+      return Response.json({ error: "DATABASE_URL não configurada", logs }, { status: 500 });
     }
 
     log("Iniciando sincronização...");
 
+    // Testar DB
     log("Testando PostgreSQL...");
     try {
-      const [{ total }] = await sql`SELECT count(*) as total FROM pluggy_items`;
-      log(`PostgreSQL OK — ${total} items no banco`);
+      const [{ total }] = await sql`SELECT count(*)::int as total FROM pluggy_items`;
+      log(`PostgreSQL OK — ${total} items`);
     } catch (dbErr) {
       const msg = dbErr instanceof Error ? dbErr.message : String(dbErr);
       log(`PostgreSQL ERRO: ${msg}`);
-      return NextResponse.json({ error: `DB: ${msg}`, logs }, { status: 500 });
+      console.error("SYNC DB ERROR:", msg);
+      return Response.json({ error: `DB: ${msg}`, logs }, { status: 500 });
     }
 
     const savedItems = await sql<{ id: string; item_id: string; institution_name: string }[]>`
@@ -43,64 +49,40 @@ export async function POST() {
 
     if (savedItems.length === 0) {
       log("Nenhum item no banco");
-      return NextResponse.json({
-        message: "Nenhum banco conectado. Use 'Adicionar Banco' no Dashboard.",
-        synced: false, itemsFound: 0, logs,
-      });
+      return Response.json({ message: "Nenhum banco conectado.", synced: false, itemsFound: 0, logs });
     }
 
-    log(`${savedItems.length} item(s) encontrado(s)`);
-
+    log(`${savedItems.length} item(s)`);
     const pluggy = createPluggyClient();
-    const results = {
-      itemsFound: savedItems.length, itemsSynced: 0,
-      bankAccounts: 0, creditAccounts: 0, creditCards: 0,
-      transactions: 0, investments: 0, loans: 0,
-    };
+    const results = { itemsFound: savedItems.length, itemsSynced: 0, bankAccounts: 0, creditAccounts: 0, creditCards: 0, transactions: 0, investments: 0, loans: 0 };
     const itemErrors: Array<{ itemId: string; institution: string; error: string }> = [];
 
-    // Processar items em PARALELO para velocidade
-    const syncPromises = savedItems.map(async (dbItem) => {
+    // Processar items em paralelo
+    const syncResults = await Promise.all(savedItems.map(async (dbItem) => {
       try {
-        log(`Sincronizando ${dbItem.institution_name} (${dbItem.item_id})...`);
+        log(`Sync ${dbItem.institution_name}...`);
         const item = await pluggy.fetchItem(dbItem.item_id);
         log(`  Status: ${item.status}`);
 
-        await sql`
-          UPDATE pluggy_items SET status = ${item.status}, institution_name = ${item.connector.name}
-          WHERE id = ${dbItem.id}::uuid
-        `;
+        await sql`UPDATE pluggy_items SET status = ${item.status}, institution_name = ${item.connector.name} WHERE id = ${dbItem.id}::uuid`;
 
-        // Contas primeiro (precisamos dos IDs para transações)
-        const acctResult = await syncAccounts(pluggy, dbItem, item.connector.name, log);
-
-        // Transações, investimentos e empréstimos em paralelo
+        const acct = await syncAccounts(pluggy, dbItem, item.connector.name, log);
         const [txCount, invCount, loanCount] = await Promise.all([
           syncTransactions(pluggy, dbItem, log),
           syncInvestments(pluggy, dbItem, log),
           syncLoans(pluggy, dbItem, item.connector.name, log),
         ]);
 
-        log(`  RESUMO ${dbItem.institution_name}: ${acctResult.bankAccounts} banco, ${acctResult.creditAccounts} crédito, ${acctResult.creditCards} cartões, ${txCount} tx`);
-
-        return {
-          ok: true as const,
-          bankAccounts: acctResult.bankAccounts,
-          creditAccounts: acctResult.creditAccounts,
-          creditCards: acctResult.creditCards,
-          transactions: txCount,
-          investments: invCount,
-          loans: loanCount,
-        };
+        log(`  OK: ${acct.bankAccounts}bank ${acct.creditAccounts}credit ${txCount}tx`);
+        return { ok: true as const, ...acct, transactions: txCount, investments: invCount, loans: loanCount };
       } catch (err) {
         const msg = err instanceof Error ? err.message : String(err);
         log(`  ERRO ${dbItem.institution_name}: ${msg}`);
+        console.error(`SYNC ITEM ERROR [${dbItem.item_id}]:`, msg);
         itemErrors.push({ itemId: dbItem.item_id, institution: dbItem.institution_name, error: msg });
         return { ok: false as const };
       }
-    });
-
-    const syncResults = await Promise.all(syncPromises);
+    }));
 
     for (const r of syncResults) {
       if (r.ok) {
@@ -114,12 +96,11 @@ export async function POST() {
       }
     }
 
-    log(`Finalizado: ${results.itemsSynced}/${results.itemsFound} — ${results.bankAccounts} contas, ${results.creditCards} cartões, ${results.transactions} transações`);
+    log(`Finalizado: ${results.itemsSynced}/${results.itemsFound}`);
 
-    // Atualizar cache do dashboard inline
-    log("Atualizando cache do dashboard...");
+    // Atualizar cache do dashboard
+    log("Atualizando cache...");
     try {
-      // Queries simples separadas (mais confiável que jsonb_build_object com subqueries)
       const [balRow, crRow, invRow, bnkRow] = await Promise.all([
         sql`SELECT COALESCE(SUM(balance),0)::float AS v FROM accounts WHERE type NOT IN ('CREDIT','CREDIT_CARD')`,
         sql`SELECT COALESCE(SUM(ABS(balance)),0)::float AS used, COALESCE(SUM(COALESCE(credit_limit,0)),0)::float AS lim FROM accounts WHERE type IN ('CREDIT','CREDIT_CARD')`,
@@ -132,216 +113,118 @@ export async function POST() {
       const ti = Number(invRow[0]?.v) || 0;
       const cb = Number(bnkRow[0]?.v) || 0;
       const cacheData = { totalBalance: tb, totalCreditUsed: tcu, totalCreditLimit: tcl, totalInvested: ti, netBalance: tb - tcu, connectedBanks: cb };
-      await sql`
-        INSERT INTO dashboard_cache (id, data, updated_at)
-        VALUES (1, ${JSON.stringify(cacheData)}::jsonb, NOW())
-        ON CONFLICT (id) DO UPDATE SET data = EXCLUDED.data, updated_at = NOW()
-      `;
-      log(`Cache OK: balance=${tb} credit=${tcu}/${tcl} invest=${ti} banks=${cb}`);
+      await sql`INSERT INTO dashboard_cache (id, data, updated_at) VALUES (1, ${JSON.stringify(cacheData)}::jsonb, NOW()) ON CONFLICT (id) DO UPDATE SET data = EXCLUDED.data, updated_at = NOW()`;
+      log(`Cache OK: bal=${tb} cr=${tcu}/${tcl} inv=${ti}`);
     } catch (cacheErr) {
       log(`Cache ERRO: ${cacheErr instanceof Error ? cacheErr.message : String(cacheErr)}`);
     }
 
-    return NextResponse.json({
+    return Response.json({
       message: `${results.itemsSynced} de ${results.itemsFound} bancos sincronizados.`,
       synced: results.itemsSynced > 0, results,
       itemErrors: itemErrors.length > 0 ? itemErrors : undefined, logs,
     });
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
+    const stack = error instanceof Error ? error.stack : undefined;
+    console.error("SYNC ERROR DETAILS:", JSON.stringify({ message, stack }));
     log(`ERRO FATAL: ${message}`);
-    return NextResponse.json({ error: message, logs }, { status: 500 });
+    return Response.json({ error: message, stack, logs }, { status: 500 });
   }
 }
 
-// Sincroniza TODAS as contas: tipo BANK (corrente/poupança) + tipo CREDIT (cartões)
-async function syncAccounts(
-  pluggy: Pluggy, dbItem: { id: string; item_id: string },
-  institutionName: string, log: LogFn
-) {
-  let bankAccounts = 0, creditAccounts = 0, creditCards = 0;
+// --- Helper functions ---
 
-  // Buscar TODAS as contas (sem filtro de tipo)
+async function syncAccounts(pluggy: Pluggy, dbItem: { id: string; item_id: string }, institutionName: string, log: LogFn) {
+  let bankAccounts = 0, creditAccounts = 0, creditCards = 0;
   const { results: accounts } = await pluggy.fetchAccounts(dbItem.item_id);
-  log(`  Pluggy retornou ${accounts.length} contas`);
+  log(`  ${accounts.length} contas`);
 
   for (const account of accounts) {
     try {
-      // Logar dados brutos para debug
-      log(`  Conta: type=${account.type} subtype=${account.subtype} name="${account.name}" balance=${account.balance} number=${account.number || "—"}`);
-      if (account.creditData) {
-        log(`    creditData: creditLimit=${account.creditData.creditLimit} availableCreditLimit=${account.creditData.availableCreditLimit} brand=${account.creditData.brand}`);
-      }
-
-      // Determinar o balance correto:
-      // - BANK: usar account.balance diretamente
-      // - CREDIT: balance é o valor da fatura (geralmente negativo = deve), usar valor absoluto
       const isCreditAccount = account.type === "CREDIT";
-      const balance = account.balance;
-      const creditLimit = account.creditData?.creditLimit || 0;
-
-      // Salvar conta no banco
       const [upserted] = await sql`
         INSERT INTO accounts (item_id, pluggy_account_id, name, type, balance, credit_limit, currency, updated_at)
-        VALUES (
-          ${dbItem.id}::uuid,
-          ${account.id},
-          ${account.name},
-          ${account.subtype || account.type},
-          ${balance},
-          ${creditLimit},
-          ${account.currencyCode},
-          now()
-        )
+        VALUES (${dbItem.id}::uuid, ${account.id}, ${account.name}, ${account.subtype || account.type},
+                ${account.balance}, ${account.creditData?.creditLimit || 0}, ${account.currencyCode}, now())
         ON CONFLICT (pluggy_account_id) DO UPDATE SET
           name = EXCLUDED.name, type = EXCLUDED.type, balance = EXCLUDED.balance,
           credit_limit = EXCLUDED.credit_limit, currency = EXCLUDED.currency, updated_at = now()
-        RETURNING id
-      `;
+        RETURNING id`;
 
-      if (isCreditAccount) {
-        creditAccounts++;
-      } else {
-        bankAccounts++;
-      }
+      if (isCreditAccount) creditAccounts++; else bankAccounts++;
 
-      // Se é conta de crédito, criar/atualizar registro na tabela credit_cards
       if (isCreditAccount && upserted) {
         const cd = account.creditData;
-        // Saldo usado do cartão: valor absoluto do balance da conta de crédito
-        const usedBalance = Math.abs(balance);
-        const cardCreditLimit = cd?.creditLimit || 0;
-        const availableLimit = cd?.availableCreditLimit || 0;
-        const brand = cd?.brand || "";
-        const last4 = account.number?.slice(-4) || "****";
-        const cardName = `${institutionName} ${brand}`.trim();
-
-        log(`    Cartão: ${cardName} final ${last4} — usado=${usedBalance} limite=${cardCreditLimit} disponível=${availableLimit}`);
-
         await sql`
           INSERT INTO credit_cards (account_id, name, last4, balance, credit_limit, available_limit, updated_at)
-          VALUES (
-            ${upserted.id}::uuid,
-            ${cardName},
-            ${last4},
-            ${usedBalance},
-            ${cardCreditLimit},
-            ${availableLimit},
-            now()
-          )
+          VALUES (${upserted.id}::uuid, ${`${institutionName} ${cd?.brand || ""}`.trim()},
+                  ${account.number?.slice(-4) || "****"}, ${Math.abs(account.balance)},
+                  ${cd?.creditLimit || 0}, ${cd?.availableCreditLimit || 0}, now())
           ON CONFLICT (account_id) DO UPDATE SET
             name = EXCLUDED.name, last4 = EXCLUDED.last4, balance = EXCLUDED.balance,
-            credit_limit = EXCLUDED.credit_limit, available_limit = EXCLUDED.available_limit, updated_at = now()
-        `;
+            credit_limit = EXCLUDED.credit_limit, available_limit = EXCLUDED.available_limit, updated_at = now()`;
         creditCards++;
       }
-    } catch (e) {
-      log(`  Erro conta ${account.id}: ${e instanceof Error ? e.message : String(e)}`);
-    }
+    } catch (e) { log(`  Erro conta ${account.id}: ${e instanceof Error ? e.message : String(e)}`); }
   }
-
   return { bankAccounts, creditAccounts, creditCards };
 }
 
-// Sincroniza transações de TODAS as contas (BANK + CREDIT)
 async function syncTransactions(pluggy: Pluggy, dbItem: { id: string; item_id: string }, log: LogFn) {
-  let totalCount = 0;
-
-  // Buscar TODAS as contas deste item no DB (incluindo cartões de crédito)
+  let count = 0;
   const dbAccounts = await sql<{ id: string; pluggy_account_id: string; type: string }[]>`
-    SELECT id, pluggy_account_id, type FROM accounts WHERE item_id = ${dbItem.id}::uuid
-  `;
-  if (!dbAccounts.length) {
-    log("  Nenhuma conta no DB para buscar transações");
-    return 0;
-  }
+    SELECT id, pluggy_account_id, type FROM accounts WHERE item_id = ${dbItem.id}::uuid`;
+  if (!dbAccounts.length) return 0;
 
-  log(`  Buscando transações de ${dbAccounts.length} contas (${dbAccounts.map((a) => a.type).join(", ")})...`);
-
-  const fromDate = new Date();
-  fromDate.setDate(fromDate.getDate() - 30);
-  const from = fromDate.toISOString().split("T")[0];
+  const from = new Date(Date.now() - 30 * 86400000).toISOString().split("T")[0];
 
   for (const acct of dbAccounts) {
     try {
       const txs = await pluggy.fetchAllTransactions(acct.pluggy_account_id, { from });
-      log(`  ${txs.length} transações da conta ${acct.type} (${acct.pluggy_account_id.substring(0, 8)}...)`);
-
-      if (txs.length === 0) continue;
-
-      // Inserir uma a uma (seguro para transaction pooler sem prepare)
+      log(`  ${txs.length} tx (${acct.type})`);
       for (const tx of txs as PluggyTransaction[]) {
         const txDate = typeof tx.date === "string" ? tx.date : new Date(tx.date).toISOString().split("T")[0];
-        await sql`
-          INSERT INTO transactions (account_id, pluggy_transaction_id, description, amount, date, category, type)
-          VALUES (
-            ${acct.id}::uuid,
-            ${tx.id},
-            ${tx.description},
-            ${tx.amount},
-            ${txDate},
-            ${tx.category || null},
-            ${tx.type}
-          )
-          ON CONFLICT (pluggy_transaction_id) DO UPDATE SET
-            description = EXCLUDED.description, amount = EXCLUDED.amount,
-            date = EXCLUDED.date, category = EXCLUDED.category, type = EXCLUDED.type
-        `;
+        await sql`INSERT INTO transactions (account_id, pluggy_transaction_id, description, amount, date, category, type)
+          VALUES (${acct.id}::uuid, ${tx.id}, ${tx.description}, ${tx.amount}, ${txDate}, ${tx.category || null}, ${tx.type})
+          ON CONFLICT (pluggy_transaction_id) DO UPDATE SET description = EXCLUDED.description, amount = EXCLUDED.amount, date = EXCLUDED.date, category = EXCLUDED.category, type = EXCLUDED.type`;
       }
-      totalCount += txs.length;
-    } catch (e) {
-      log(`  Erro tx conta ${acct.type} ${acct.pluggy_account_id}: ${e instanceof Error ? e.message : String(e)}`);
-    }
+      count += txs.length;
+    } catch (e) { log(`  Erro tx: ${e instanceof Error ? e.message : String(e)}`); }
   }
-
-  log(`  Total transações sincronizadas: ${totalCount}`);
-  return totalCount;
+  return count;
 }
 
 async function syncInvestments(pluggy: Pluggy, dbItem: { id: string; item_id: string }, log: LogFn) {
   let count = 0;
   try {
     const { results: invs } = await pluggy.fetchInvestments(dbItem.item_id);
-    log(`  ${invs.length} investimentos`);
+    log(`  ${invs.length} inv`);
     for (const inv of invs) {
-      await sql`
-        INSERT INTO investments (item_id, pluggy_investment_id, name, type, balance, quantity, value, updated_at)
-        VALUES (${dbItem.id}::uuid, ${inv.id}, ${inv.name}, ${inv.type},
-                ${inv.balance}, ${inv.quantity || 0}, ${inv.value || 0}, now())
-        ON CONFLICT (pluggy_investment_id) DO UPDATE SET
-          name = EXCLUDED.name, type = EXCLUDED.type, balance = EXCLUDED.balance,
-          quantity = EXCLUDED.quantity, value = EXCLUDED.value, updated_at = now()
-      `;
+      await sql`INSERT INTO investments (item_id, pluggy_investment_id, name, type, balance, quantity, value, updated_at)
+        VALUES (${dbItem.id}::uuid, ${inv.id}, ${inv.name}, ${inv.type}, ${inv.balance}, ${inv.quantity || 0}, ${inv.value || 0}, now())
+        ON CONFLICT (pluggy_investment_id) DO UPDATE SET name = EXCLUDED.name, type = EXCLUDED.type, balance = EXCLUDED.balance, quantity = EXCLUDED.quantity, value = EXCLUDED.value, updated_at = now()`;
       count++;
     }
-  } catch (e) { log(`  Investimentos indisponíveis: ${e instanceof Error ? e.message : String(e)}`); }
+  } catch (e) { log(`  Inv indisponível: ${e instanceof Error ? e.message : String(e)}`); }
   return count;
 }
 
-async function syncLoans(
-  pluggy: Pluggy, dbItem: { id: string; item_id: string },
-  institutionName: string, log: LogFn
-) {
+async function syncLoans(pluggy: Pluggy, dbItem: { id: string; item_id: string }, institutionName: string, log: LogFn) {
   let count = 0;
   try {
     const { results: loans } = await pluggy.fetchLoans(dbItem.item_id);
-    log(`  ${loans.length} empréstimos`);
+    log(`  ${loans.length} loans`);
     for (const loan of loans) {
-      await sql`
-        INSERT INTO loans (item_id, pluggy_loan_id, institution_name, name, total_amount,
-          installment_amount, total_installments, paid_installments, outstanding_balance, interest_rate, updated_at)
-        VALUES (${dbItem.id}::uuid, ${loan.id}, ${institutionName}, ${loan.productName},
-                ${loan.contractAmount || 0}, ${0}, ${loan.installments?.totalNumberOfInstallments || 0},
-                ${loan.installments?.paidInstallments || 0}, ${loan.payments?.contractOutstandingBalance || 0},
-                ${loan.CET || 0}, now())
-        ON CONFLICT (pluggy_loan_id) DO UPDATE SET
-          institution_name = EXCLUDED.institution_name, name = EXCLUDED.name,
+      await sql`INSERT INTO loans (item_id, pluggy_loan_id, institution_name, name, total_amount, installment_amount, total_installments, paid_installments, outstanding_balance, interest_rate, updated_at)
+        VALUES (${dbItem.id}::uuid, ${loan.id}, ${institutionName}, ${loan.productName}, ${loan.contractAmount || 0}, ${0},
+                ${loan.installments?.totalNumberOfInstallments || 0}, ${loan.installments?.paidInstallments || 0},
+                ${loan.payments?.contractOutstandingBalance || 0}, ${loan.CET || 0}, now())
+        ON CONFLICT (pluggy_loan_id) DO UPDATE SET institution_name = EXCLUDED.institution_name, name = EXCLUDED.name,
           total_amount = EXCLUDED.total_amount, total_installments = EXCLUDED.total_installments,
-          paid_installments = EXCLUDED.paid_installments, outstanding_balance = EXCLUDED.outstanding_balance,
-          interest_rate = EXCLUDED.interest_rate, updated_at = now()
-      `;
+          paid_installments = EXCLUDED.paid_installments, outstanding_balance = EXCLUDED.outstanding_balance, interest_rate = EXCLUDED.interest_rate, updated_at = now()`;
       count++;
     }
-  } catch (e) { log(`  Empréstimos indisponíveis: ${e instanceof Error ? e.message : String(e)}`); }
+  } catch (e) { log(`  Loans indisponível: ${e instanceof Error ? e.message : String(e)}`); }
   return count;
 }

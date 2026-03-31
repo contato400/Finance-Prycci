@@ -7,6 +7,18 @@ import { DateRangePicker } from "@/components/date-range-picker";
 import { useState } from "react";
 import { toast } from "@/hooks/use-toast";
 
+// Parse seguro de resposta — trata texto puro e JSON inválido
+async function safeJson(res: Response): Promise<{ ok: boolean; data: Record<string, unknown> }> {
+  const text = await res.text();
+  try {
+    const data = JSON.parse(text);
+    return { ok: res.ok, data };
+  } catch {
+    console.error("Resposta não-JSON:", text.slice(0, 200));
+    return { ok: false, data: { error: text.slice(0, 100) } };
+  }
+}
+
 export function Header() {
   const { data: session } = useSession();
   const [syncing, setSyncing] = useState(false);
@@ -15,36 +27,45 @@ export function Header() {
   async function handleSync() {
     setSyncing(true);
     try {
-      // 1. Sincronizar dados da Pluggy
+      // 1. Sincronizar
       toast({ title: "Sincronizando dados bancários..." });
-      const res = await fetch("/api/pluggy/sync", { method: "POST" });
-      const data = await res.json();
+      const syncResult = await safeJson(await fetch("/api/pluggy/sync", { method: "POST" }));
 
-      if (!res.ok || data.error) {
-        toast({ title: "Erro na sincronização", description: data.error || `Status ${res.status}`, variant: "destructive" });
-        if (data.logs) console.info("[sync logs]", data.logs);
+      if (!syncResult.ok || syncResult.data.error) {
+        toast({
+          title: "Erro na sincronização",
+          description: String(syncResult.data.error || "Erro desconhecido"),
+          variant: "destructive",
+        });
+        if (syncResult.data.logs) console.info("[sync logs]", syncResult.data.logs);
         return;
       }
 
-      // 2. Forçar recálculo do cache (redundância se o inline no sync falhou)
+      // 2. Forçar cache (redundância)
       toast({ title: "Atualizando dashboard..." });
       await fetch("/api/pluggy/force-cache", { method: "POST" }).catch(() => {});
 
-      // 2. Sucesso — mostrar toast com hora atual
-      const now = new Date().toLocaleString("pt-BR", { day: "2-digit", month: "2-digit", year: "numeric", hour: "2-digit", minute: "2-digit" });
+      // 3. Sucesso
+      const now = new Date().toLocaleString("pt-BR", {
+        day: "2-digit", month: "2-digit", year: "numeric",
+        hour: "2-digit", minute: "2-digit",
+      });
       setLastSync(now);
 
-      const msg = data.message || "Dados atualizados.";
-      const itemErrors = data.itemErrors as Array<{ itemId: string; error: string }> | undefined;
+      const msg = String(syncResult.data.message || "Dados atualizados.");
+      const itemErrors = syncResult.data.itemErrors as Array<{ itemId: string; error: string }> | undefined;
       toast({
         title: itemErrors?.length ? "Sincronização parcial" : `Dados atualizados • ${now}`,
         description: itemErrors?.length ? `${msg} (${itemErrors.length} erro(s))` : msg,
       });
 
-      // 3. Recarregar para refletir os dados novos
       window.location.reload();
     } catch (err) {
-      toast({ title: "Erro de rede", description: err instanceof Error ? err.message : "Sem conexão.", variant: "destructive" });
+      toast({
+        title: "Erro de rede",
+        description: err instanceof Error ? err.message : "Sem conexão com o servidor.",
+        variant: "destructive",
+      });
     } finally {
       setSyncing(false);
     }
