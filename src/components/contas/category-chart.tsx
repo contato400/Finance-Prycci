@@ -9,6 +9,7 @@ import {
   Legend,
 } from "recharts";
 import { formatCurrency } from "@/lib/utils";
+import { CATEGORY_TOOLTIPS } from "@/lib/categories";
 
 interface CategoryChartProps {
   data: Array<{ category: string; total: number }>;
@@ -60,8 +61,22 @@ export function CategoryChart({ data }: CategoryChartProps) {
             border: "1px solid #1e293b",
             borderRadius: "8px",
             color: "#f8fafc",
+            maxWidth: "280px",
           }}
-          formatter={(value) => [formatCurrency(Number(value)), "Total"]}
+          formatter={(value, name) => {
+            const tooltip = CATEGORY_TOOLTIPS[String(name)];
+            return [
+              <span key="val">
+                {formatCurrency(Number(value))}
+                {tooltip && (
+                  <span style={{ display: "block", fontSize: "10px", color: "#94a3b8", marginTop: "2px" }}>
+                    {tooltip}
+                  </span>
+                )}
+              </span>,
+              "Total",
+            ];
+          }}
         />
         <Legend
           wrapperStyle={{ color: "#94a3b8", fontSize: "12px" }}

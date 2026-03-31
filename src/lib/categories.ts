@@ -43,7 +43,7 @@ const CATEGORY_MAP: Record<string, string> = {
 
   // Financeiro
   "Credit card payment": "Pagamento de cartão",
-  "Investments": "Investimentos",
+  "Investments": "Aporte / Aplicação",
   "Bank slip": "Boleto",
   "Loan": "Empréstimo",
   "Loans": "Empréstimos",
@@ -95,6 +95,11 @@ const CATEGORY_MAP: Record<string, string> = {
   "Others": "Outros",
   "Other": "Outros",
   "Uncategorized": "Sem categoria",
+};
+
+// Tooltips explicativos para categorias que podem causar confusão
+export const CATEGORY_TOOLTIPS: Record<string, string> = {
+  "Aporte / Aplicação": "Valores enviados para aplicações financeiras (CDB, Tesouro, etc.)",
 };
 
 // Traduz uma categoria para pt-BR. Se não encontrar no mapa, retorna original.

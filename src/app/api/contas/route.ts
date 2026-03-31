@@ -69,12 +69,20 @@ export async function GET(request: Request) {
     if (accountIds.length > 0) {
       const [catRows, transferRows] = await Promise.all([
         sql`
-          SELECT COALESCE(category, 'Sem categoria') as category,
-                 SUM(ABS(amount))::float as total
-          FROM transactions
-          WHERE account_id = ANY(${accountIds}::uuid[]) AND type = 'DEBIT'
-            AND date >= ${start} AND date <= ${end}
-          GROUP BY COALESCE(category, 'Sem categoria')
+          SELECT effective_category as category, SUM(ABS(amount))::float as total
+          FROM (
+            SELECT amount,
+              CASE
+                WHEN description ILIKE '%pix%' THEN 'Pix enviado'
+                WHEN description ILIKE '%ted%' THEN 'TED'
+                WHEN description ILIKE '%boleto%' OR description ILIKE '%slip%' THEN 'Boleto'
+                ELSE COALESCE(category, 'Sem categoria')
+              END AS effective_category
+            FROM transactions
+            WHERE account_id = ANY(${accountIds}::uuid[]) AND type = 'DEBIT'
+              AND date >= ${start} AND date <= ${end}
+          ) sub
+          GROUP BY effective_category
           ORDER BY total DESC LIMIT 10`,
         sql`
           SELECT
