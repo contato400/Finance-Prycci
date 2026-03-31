@@ -43,11 +43,23 @@ export async function GET(request: Request) {
     const totalInvested = num(c.totalInvested ?? c.total_investments);
     const netBalance = totalBalance - totalCreditUsed;
 
-    // 2. Bancos conectados — query dinâmica (não do cache)
+    // 2. Bancos conectados — query dinâmica
     const banks = await sql`
       SELECT
         pi.id AS pi_id,
-        pi.institution_name,
+        CASE
+          WHEN pi.institution_name = 'MeuPluggy' THEN
+            COALESCE((SELECT CASE
+              WHEN a2.name ILIKE '%nubank%' OR a2.name ILIKE '%nu pagamento%' THEN 'Nubank'
+              WHEN a2.name ILIKE '%inter%' THEN 'Banco Inter'
+              WHEN a2.name ILIKE '%caixa%' THEN 'Caixa Econômica Federal'
+              WHEN a2.name ILIKE '%bradesco%' THEN 'Bradesco'
+              WHEN a2.name ILIKE '%itau%' OR a2.name ILIKE '%itaú%' THEN 'Itaú'
+              WHEN a2.name ILIKE '%santander%' THEN 'Santander'
+              ELSE a2.name END
+            FROM accounts a2 WHERE a2.item_id = pi.id LIMIT 1), pi.institution_name)
+          ELSE pi.institution_name
+        END AS institution_name,
         pi.status,
         COUNT(a.id)::int AS total_contas,
         COALESCE(SUM(CASE WHEN a.type NOT IN ('CREDIT','CREDIT_CARD') THEN a.balance ELSE 0 END), 0)::float AS saldo_total,
@@ -79,7 +91,20 @@ export async function GET(request: Request) {
         t.date::text AS date,
         COALESCE(t.category, 'Sem categoria') AS category,
         a.type AS account_type,
-        pi.institution_name AS banco
+        CASE
+          WHEN pi.institution_name = 'MeuPluggy' THEN
+            CASE
+              WHEN a.name ILIKE '%nubank%' OR a.name ILIKE '%nu pagamento%' THEN 'Nubank'
+              WHEN a.name ILIKE '%inter%' THEN 'Banco Inter'
+              WHEN a.name ILIKE '%caixa%' THEN 'Caixa Econômica Federal'
+              WHEN a.name ILIKE '%bradesco%' THEN 'Bradesco'
+              WHEN a.name ILIKE '%itau%' OR a.name ILIKE '%itaú%' THEN 'Itaú'
+              WHEN a.name ILIKE '%santander%' THEN 'Santander'
+              WHEN a.name ILIKE '%c6%' THEN 'C6 Bank'
+              ELSE a.name
+            END
+          ELSE pi.institution_name
+        END AS banco
       FROM transactions t
       JOIN accounts a ON t.account_id = a.id
       JOIN pluggy_items pi ON a.item_id = pi.id
