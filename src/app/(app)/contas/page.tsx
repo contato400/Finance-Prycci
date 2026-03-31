@@ -186,7 +186,7 @@ export default function ContasPage() {
         <Card className="border-slate-800 bg-slate-900">
           <CardHeader className="flex flex-row items-center justify-between">
             <CardTitle className="text-white">
-              Movimentações • {periodLabel}
+              Movimentações • {periodLabel} ({data.totalTransactions} transações)
             </CardTitle>
             <span className="text-xs text-slate-500">
               {data.totalTransactions} transações
