@@ -46,6 +46,7 @@ export async function GET(request: Request) {
       FROM accounts a
       JOIN pluggy_items p ON a.item_id = p.id
       WHERE a.type IN ('CREDIT', 'CREDIT_CARD')
+        AND NOT (a.balance = 0 AND COALESCE(a.credit_limit, 0) = 0)
       ORDER BY a.updated_at DESC`;
 
     const enrichedCards = cards.map((c) => {
@@ -54,9 +55,11 @@ export async function GET(request: Request) {
       const availableLimit = Math.max(creditLimit - usedBalance, 0);
       const last4 = c.pluggy_account_id?.slice(-4) || "****";
 
-      // Limpa prefixo "MeuPluggy " do nome do cartão
+      // Limpa nome do cartão: remove prefixos e nomes institucionais verbosos
       const cardName = (c.name || "")
         .replace(/^MeuPluggy\s*/i, "")
+        .replace(/Nu Pagamentos S\.?A\.?\s*-?\s*Instituição de Pagamento\s*/i, "Nubank ")
+        .replace(/Nu Pagamentos S\.?A\.?\s*/i, "Nubank ")
         .trim() || c.banco;
 
       return {

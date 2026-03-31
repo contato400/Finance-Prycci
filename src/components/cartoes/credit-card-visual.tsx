@@ -69,7 +69,7 @@ export function CreditCardVisual({ card, selected, onClick }: CreditCardVisualPr
         {/* Header do cartão */}
         <div className="relative flex items-center justify-between">
           <div className="flex items-center gap-2">
-            <BankAvatar bankName={institutionName} size={28} />
+            <BankAvatar bankName={institutionName} size={32} />
             <p className="text-sm font-semibold text-white/90">{institutionName}</p>
           </div>
           <Wifi className="h-5 w-5 rotate-90 text-white/60" />
