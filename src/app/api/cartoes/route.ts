@@ -31,20 +31,18 @@ export async function GET(request: Request) {
              a.balance::float as balance,
              COALESCE(a.credit_limit, 0)::float as credit_limit,
              a.updated_at,
+             p.institution_name AS raw_institution,
              CASE
-               WHEN p.institution_name = 'MeuPluggy' THEN
-                 CASE
-                   WHEN a.name ILIKE '%nubank%' OR a.name ILIKE '%nu pagamento%' THEN 'Nubank'
-                   WHEN a.name ILIKE '%inter%' THEN 'Banco Inter'
-                   WHEN a.name ILIKE '%caixa%' THEN 'Caixa Econômica Federal'
-                   WHEN a.name ILIKE '%bradesco%' THEN 'Bradesco'
-                   WHEN a.name ILIKE '%itau%' OR a.name ILIKE '%itaú%' THEN 'Itaú'
-                   WHEN a.name ILIKE '%santander%' THEN 'Santander'
-                   WHEN a.name ILIKE '%c6%' THEN 'C6 Bank'
-                   ELSE a.name
-                 END
+               WHEN p.institution_name != 'MeuPluggy' THEN p.institution_name
+               WHEN a.name ILIKE '%nubank%' OR a.name ILIKE '%nu pagamento%' THEN 'Nubank'
+               WHEN a.name ILIKE '%inter%' THEN 'Banco Inter'
+               WHEN a.name ILIKE '%caixa%' OR a.name ILIKE '%cef%' OR a.name ILIKE '%sim visa%' THEN 'Caixa Econômica Federal'
+               WHEN a.name ILIKE '%bradesco%' THEN 'Bradesco'
+               WHEN a.name ILIKE '%itau%' OR a.name ILIKE '%itaú%' THEN 'Itaú'
+               WHEN a.name ILIKE '%santander%' THEN 'Santander'
+               WHEN a.name ILIKE '%c6%' THEN 'C6 Bank'
                ELSE p.institution_name
-             END AS institution_name
+             END AS banco
       FROM accounts a
       JOIN pluggy_items p ON a.item_id = p.id
       WHERE a.type IN ('CREDIT', 'CREDIT_CARD')
@@ -56,16 +54,21 @@ export async function GET(request: Request) {
       const availableLimit = Math.max(creditLimit - usedBalance, 0);
       const last4 = c.pluggy_account_id?.slice(-4) || "****";
 
+      // Limpa prefixo "MeuPluggy " do nome do cartão
+      const cardName = (c.name || "")
+        .replace(/^MeuPluggy\s*/i, "")
+        .trim() || c.banco;
+
       return {
         id: c.id,
         account_id: c.id,
-        name: `${c.institution_name || ""} ${c.name || ""}`.trim(),
+        name: cardName,
         last4,
         balance: usedBalance,
         credit_limit: creditLimit,
         available_limit: availableLimit,
         updated_at: c.updated_at,
-        accounts: { pluggy_items: { institution_name: c.institution_name || "Desconhecido" } },
+        accounts: { pluggy_items: { institution_name: c.banco || "Desconhecido" } },
       };
     });
 

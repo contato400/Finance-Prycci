@@ -20,20 +20,26 @@ interface CreditCardVisualProps {
   onClick?: () => void;
 }
 
-// Cores de fundo por instituição (gradientes customizados)
-const CARD_GRADIENT_STYLES: Record<string, { from: string; to: string }> = {
-  nubank: { from: "#820AD1", to: "#5D0099" },
-  "banco inter": { from: "#FF7A00", to: "#E56000" },
-  inter: { from: "#FF7A00", to: "#E56000" },
-  caixa: { from: "#006CB7", to: "#004A8F" },
-};
+// Gradientes por banco — ordem importa (mais específico primeiro)
+const CARD_GRADIENT_STYLES: Array<{ match: string; from: string; to: string }> = [
+  { match: "nubank empresas", from: "#5D0099", to: "#3D0066" },
+  { match: "nubank",          from: "#820AD1", to: "#5D0099" },
+  { match: "banco inter",     from: "#FF7A00", to: "#E56000" },
+  { match: "inter",           from: "#FF7A00", to: "#E56000" },
+  { match: "caixa",           from: "#006CB7", to: "#004A8F" },
+  { match: "bradesco",        from: "#E53935", to: "#B71C1C" },
+  { match: "itaú",            from: "#003399", to: "#001F5C" },
+  { match: "itau",            from: "#003399", to: "#001F5C" },
+  { match: "santander",       from: "#CC0000", to: "#8B0000" },
+  { match: "c6",              from: "#1A1A1A", to: "#0D0D0D" },
+];
 
 function getCardGradientStyle(name: string): { from: string; to: string } {
   const lower = name.toLowerCase();
-  for (const [key, style] of Object.entries(CARD_GRADIENT_STYLES)) {
-    if (lower.includes(key)) return style;
+  for (const style of CARD_GRADIENT_STYLES) {
+    if (lower.includes(style.match)) return { from: style.from, to: style.to };
   }
-  return { from: "#334155", to: "#1e293b" }; // dark gray default
+  return { from: "#2D2D2D", to: "#1A1A1A" };
 }
 
 // Componente visual de cartão de crédito (estilo cartão físico, dark)
