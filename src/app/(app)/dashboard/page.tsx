@@ -36,6 +36,7 @@ interface DashboardData {
   totalCreditLimit: number;
   totalInvested: number;
   totalProfit: number;
+  investmentCount: number;
   netBalance: number;
   banks: BankData[];
   connectedBanks: number;
@@ -92,6 +93,7 @@ export default function DashboardPage() {
   const creditPercent = calcPercentage(totalCreditUsed, totalCreditLimit);
   const totalInvested = data?.totalInvested ?? 0;
   const totalProfit = data?.totalProfit ?? 0;
+  const investmentCount = data?.investmentCount ?? 0;
 
   return (
     <div className="space-y-6">
@@ -161,6 +163,9 @@ export default function DashboardPage() {
               </CardHeader>
               <CardContent>
                 <div className="text-2xl font-bold text-white">{formatCurrency(totalInvested)}</div>
+                <p className="mt-1 text-xs text-slate-500">
+                  {investmentCount} ativo{investmentCount !== 1 ? "s" : ""}
+                </p>
                 {totalProfit !== 0 && (
                   <p className={`mt-1 text-xs ${totalProfit > 0 ? "text-emerald-400" : "text-red-400"}`}>
                     {totalProfit > 0 ? "+" : ""}{formatCurrency(totalProfit)} rendimento

@@ -19,11 +19,14 @@ interface InvestmentAsset {
   balance: number;
   quantity: number;
   value: number;
+  profit: number;
+  profitPct: number;
   institution: string;
 }
 
 interface InvestimentosData {
   totalInvested: number;
+  totalProfit: number;
   byClass: Array<{ type: string; total: number }>;
   byInstitution: Array<{ institution: string; total: number }>;
   assets: InvestmentAsset[];
@@ -58,10 +61,16 @@ export default function InvestimentosPage() {
             <TrendingUp className="h-7 w-7 text-blue-400" />
           </div>
           <div>
-            <p className="text-sm text-slate-400">Total Investido</p>
+            <p className="text-sm text-slate-400">Valor Atual da Carteira</p>
             <p className="text-3xl font-bold text-white">
               {formatCurrency(data?.totalInvested || 0)}
             </p>
+            {(data?.totalProfit ?? 0) !== 0 && (
+              <p className={`mt-1 text-sm ${(data?.totalProfit ?? 0) > 0 ? "text-emerald-400" : "text-red-400"}`}>
+                {(data?.totalProfit ?? 0) > 0 ? "+" : ""}{formatCurrency(data?.totalProfit ?? 0)} rendimento
+              </p>
+            )}
+            <p className="mt-0.5 text-xs text-slate-500">{data?.assets.length || 0} ativos</p>
           </div>
         </CardContent>
       </Card>
@@ -166,10 +175,10 @@ export default function InvestimentosPage() {
                   <tr className="border-b border-slate-800 text-left text-xs text-slate-500">
                     <th className="pb-3 font-medium">Nome</th>
                     <th className="hidden pb-3 font-medium sm:table-cell">Tipo</th>
-                    <th className="hidden pb-3 font-medium md:table-cell">Instituição</th>
-                    <th className="hidden pb-3 text-right font-medium sm:table-cell">Qtd</th>
-                    <th className="hidden pb-3 text-right font-medium md:table-cell">Valor Unit.</th>
+                    <th className="hidden pb-3 font-medium lg:table-cell">Instituição</th>
+                    <th className="hidden pb-3 text-right font-medium md:table-cell">Aplicado</th>
                     <th className="pb-3 text-right font-medium">Valor Atual</th>
+                    <th className="hidden pb-3 text-right font-medium sm:table-cell">Rent.</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -186,17 +195,19 @@ export default function InvestimentosPage() {
                           {asset.type}
                         </span>
                       </td>
-                      <td className="hidden py-3 text-slate-400 md:table-cell">{asset.institution}</td>
-                      <td className="hidden py-3 text-right text-slate-300 sm:table-cell">
-                        {asset.quantity > 0
-                          ? asset.quantity.toLocaleString("pt-BR", { maximumFractionDigits: 6 })
-                          : "—"}
-                      </td>
+                      <td className="hidden py-3 text-slate-400 lg:table-cell">{asset.institution}</td>
                       <td className="hidden py-3 text-right text-slate-300 md:table-cell">
                         {asset.value > 0 ? formatCurrency(asset.value) : "—"}
                       </td>
                       <td className="py-3 text-right font-medium text-emerald-400">
                         {formatCurrency(asset.balance)}
+                      </td>
+                      <td className={`hidden py-3 text-right font-medium sm:table-cell ${
+                        asset.profitPct > 0 ? "text-emerald-400" : asset.profitPct < 0 ? "text-red-400" : "text-slate-400"
+                      }`}>
+                        {asset.value > 0
+                          ? `${asset.profitPct > 0 ? "+" : ""}${asset.profitPct.toFixed(1)}%`
+                          : "—"}
                       </td>
                     </tr>
                   ))}

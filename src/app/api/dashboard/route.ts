@@ -40,8 +40,16 @@ export async function GET(request: Request) {
     const totalBalance = num(c.totalBalance ?? c.total_balance);
     const totalCreditUsed = num(c.totalCreditUsed ?? c.total_credit_used);
     const totalCreditLimit = num(c.totalCreditLimit ?? c.total_limit);
-    const totalInvested = num(c.totalInvested ?? c.total_investments);
-    const totalProfit = num(c.totalProfit ?? c.total_profit);
+
+    // Investimentos: query direto da tabela para evitar cache desatualizado
+    const invRow = await sql`
+      SELECT COALESCE(SUM(balance), 0)::float AS total,
+             COALESCE(SUM(amount_profit), 0)::float AS profit,
+             COUNT(*)::int AS count
+      FROM investments`;
+    const totalInvested = num(invRow[0]?.total);
+    const totalProfit = num(invRow[0]?.profit);
+    const investmentCount = num(invRow[0]?.count);
     const netBalance = totalBalance + totalInvested - totalCreditUsed;
 
     // 2. Bancos conectados — sem duplicatas, apenas banco + status
@@ -114,7 +122,7 @@ export async function GET(request: Request) {
     }));
 
     return NextResponse.json({
-      totalBalance, totalCreditUsed, totalCreditLimit, totalInvested, totalProfit, netBalance,
+      totalBalance, totalCreditUsed, totalCreditLimit, totalInvested, totalProfit, investmentCount, netBalance,
       banks: banks.map((b) => ({
         name: b.banco,
         status: b.status,
