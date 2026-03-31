@@ -15,6 +15,7 @@ import {
   ArrowDownLeft,
   ArrowUpRight,
   Filter,
+  Send,
 } from "lucide-react";
 
 interface Account {
@@ -37,6 +38,12 @@ interface Transaction {
   type: string;
 }
 
+interface TopTransfer {
+  destinatario: string;
+  total: number;
+  qtd: number;
+}
+
 interface ContasData {
   accounts: Account[];
   transactions: Transaction[] | null;
@@ -44,6 +51,7 @@ interface ContasData {
   page: number;
   totalPages: number;
   categoryData: Array<{ category: string; total: number }>;
+  topTransfers: TopTransfer[];
 }
 
 type FilterType = "ALL" | "CHECKING_ACCOUNT" | "SAVINGS_ACCOUNT";
@@ -293,6 +301,43 @@ export default function ContasPage() {
           <CategoryChart data={data?.categoryData || []} />
         </CardContent>
       </Card>
+
+      {/* Top transferências enviadas */}
+      {data?.topTransfers && data.topTransfers.length > 0 && (
+        <Card className="border-slate-800 bg-slate-900">
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2 text-white">
+              <Send className="h-4 w-4 text-slate-400" />
+              Para quem você mais transferiu • {periodLabel}
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className="space-y-3">
+              {data.topTransfers.map((tf, i) => (
+                <div
+                  key={tf.destinatario}
+                  className="flex items-center gap-3 rounded-lg px-2 py-2 transition-colors hover:bg-slate-800/50"
+                >
+                  <span className="w-5 shrink-0 text-right text-sm font-bold text-slate-500">
+                    {i + 1}.
+                  </span>
+                  <div className="min-w-0 flex-1">
+                    <p className="truncate text-sm font-medium text-white">
+                      {tf.destinatario}
+                    </p>
+                    <p className="text-xs text-slate-500">
+                      {tf.qtd} transferência{tf.qtd !== 1 ? "s" : ""}
+                    </p>
+                  </div>
+                  <span className="shrink-0 text-sm font-semibold text-red-400">
+                    {formatCurrency(tf.total)}
+                  </span>
+                </div>
+              ))}
+            </div>
+          </CardContent>
+        </Card>
+      )}
     </div>
   );
 }

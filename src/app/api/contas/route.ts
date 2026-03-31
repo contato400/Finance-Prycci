@@ -65,24 +65,51 @@ export async function GET(request: Request) {
     const accountIds = accounts.map((a) => a.id);
 
     let categoryData: Array<{ category: string; total: number }> = [];
+    let topTransfers: Array<{ destinatario: string; total: number; qtd: number }> = [];
     if (accountIds.length > 0) {
-      const catRows = await sql`
-        SELECT COALESCE(category, 'Sem categoria') as category,
-               SUM(ABS(amount))::float as total
-        FROM transactions
-        WHERE account_id = ANY(${accountIds}::uuid[]) AND type = 'DEBIT'
-          AND date >= ${start} AND date <= ${end}
-        GROUP BY COALESCE(category, 'Sem categoria')
-        ORDER BY total DESC LIMIT 10`;
+      const [catRows, transferRows] = await Promise.all([
+        sql`
+          SELECT COALESCE(category, 'Sem categoria') as category,
+                 SUM(ABS(amount))::float as total
+          FROM transactions
+          WHERE account_id = ANY(${accountIds}::uuid[]) AND type = 'DEBIT'
+            AND date >= ${start} AND date <= ${end}
+          GROUP BY COALESCE(category, 'Sem categoria')
+          ORDER BY total DESC LIMIT 10`,
+        sql`
+          SELECT
+            REGEXP_REPLACE(description,
+              '^(Transferência enviada|Pix enviado|TED|DOC)\\|?\\s*', '', 'i') AS destinatario,
+            SUM(ABS(amount))::float AS total,
+            COUNT(*)::int AS qtd
+          FROM transactions
+          WHERE account_id = ANY(${accountIds}::uuid[])
+            AND amount < 0
+            AND (
+              description ILIKE '%transferência%' OR
+              description ILIKE '%pix%' OR
+              description ILIKE '%ted%' OR
+              description ILIKE '%doc%'
+            )
+            AND date >= ${start} AND date <= ${end}
+          GROUP BY destinatario
+          ORDER BY total DESC
+          LIMIT 5`,
+      ]);
       categoryData = catRows.map((r) => ({
         category: translateCategory(r.category),
         total: Number(r.total) || 0,
+      }));
+      topTransfers = transferRows.map((r) => ({
+        destinatario: r.destinatario || "Desconhecido",
+        total: Number(r.total) || 0,
+        qtd: Number(r.qtd) || 0,
       }));
     }
 
     return NextResponse.json({
       accounts: enriched, transactions, totalTransactions,
-      page, pageSize, totalPages: Math.ceil(totalTransactions / pageSize), categoryData,
+      page, pageSize, totalPages: Math.ceil(totalTransactions / pageSize), categoryData, topTransfers,
     });
   } catch (error) {
     const message = error instanceof Error ? error.message : "Erro ao buscar contas";
