@@ -14,6 +14,7 @@ export async function GET(request: Request) {
   try {
     const auth = await requireAuth(request);
     if (auth instanceof NextResponse) return auth;
+    const { userId } = auth;
 
     const investments = await sql`
       SELECT i.*, i.balance::float as balance,
@@ -22,12 +23,12 @@ export async function GET(request: Request) {
              p.institution_name
       FROM investments i
       JOIN pluggy_items p ON i.item_id = p.id
+      WHERE i.user_id = ${userId}
       ORDER BY i.balance DESC
     `;
 
     const totalInvested = investments.reduce((s, i) => s + (Number(i.balance) || 0), 0);
 
-    // Por classe
     const byClassMap = new Map<string, number>();
     for (const inv of investments) {
       const label = TYPE_LABELS[inv.type] || inv.type;
@@ -37,7 +38,6 @@ export async function GET(request: Request) {
       .map(([type, total]) => ({ type, total }))
       .sort((a, b) => b.total - a.total);
 
-    // Por instituição
     const byInstMap = new Map<string, number>();
     for (const inv of investments) {
       const inst = inv.institution_name || "Desconhecido";

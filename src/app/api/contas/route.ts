@@ -11,6 +11,7 @@ export async function GET(request: Request) {
   try {
     const auth = await requireAuth(request);
     if (auth instanceof NextResponse) return auth;
+    const { userId } = auth;
 
     const { searchParams } = new URL(request.url);
     const typeFilter = searchParams.get("type");
@@ -18,22 +19,20 @@ export async function GET(request: Request) {
     const page = parseInt(searchParams.get("page") || "1");
     const pageSize = 20;
 
-    // Período: default = mês atual
     const now = new Date();
     const start = searchParams.get("start") ?? new Date(now.getFullYear(), now.getMonth(), 1).toISOString().split("T")[0];
     const end = searchParams.get("end") ?? new Date(now.getFullYear(), now.getMonth() + 1, 0).toISOString().split("T")[0];
 
-    // Contas bancárias — exclui CREDIT/CREDIT_CARD (esses vão para /cartoes)
     const accounts = typeFilter
       ? await sql`
           SELECT a.*, a.balance::float as balance, p.institution_name
           FROM accounts a JOIN pluggy_items p ON a.item_id = p.id
-          WHERE a.type = ${typeFilter}
+          WHERE a.user_id = ${userId} AND a.type = ${typeFilter}
           ORDER BY a.updated_at DESC`
       : await sql`
           SELECT a.*, a.balance::float as balance, p.institution_name
           FROM accounts a JOIN pluggy_items p ON a.item_id = p.id
-          WHERE a.type NOT IN ('CREDIT', 'CREDIT_CARD')
+          WHERE a.user_id = ${userId} AND a.type NOT IN ('CREDIT', 'CREDIT_CARD')
           ORDER BY a.updated_at DESC`;
 
     const enriched = accounts.map((a) => ({
@@ -41,25 +40,23 @@ export async function GET(request: Request) {
       pluggy_items: { institution_name: translateInstitution(a.institution_name) },
     }));
 
-    // Transações paginadas
     let transactions = null;
     let totalTransactions = 0;
 
     if (accountId) {
       const [{ total }] = await sql`
         SELECT count(*)::int as total FROM transactions
-        WHERE account_id = ${accountId}::uuid AND date >= ${start} AND date <= ${end}`;
+        WHERE account_id = ${accountId}::uuid AND user_id = ${userId} AND date >= ${start} AND date <= ${end}`;
       totalTransactions = Number(total) || 0;
 
       const offset = (page - 1) * pageSize;
       const rawTx = await sql`
         SELECT *, amount::float as amount FROM transactions
-        WHERE account_id = ${accountId}::uuid AND date >= ${start} AND date <= ${end}
+        WHERE account_id = ${accountId}::uuid AND user_id = ${userId} AND date >= ${start} AND date <= ${end}
         ORDER BY date DESC LIMIT ${pageSize} OFFSET ${offset}`;
       transactions = rawTx.map((tx) => ({ ...tx, category: translateCategory(tx.category) }));
     }
 
-    // Gastos por categoria no período
     const accountIds = accounts.map((a) => a.id);
 
     let categoryData: Array<{ category: string; total: number }> = [];
@@ -93,6 +90,7 @@ export async function GET(request: Request) {
               END AS categoria_real
             FROM transactions
             WHERE account_id = ANY(${accountIds}::uuid[])
+              AND user_id = ${userId}
               AND amount < 0
               AND date >= ${start} AND date <= ${end}
           ) sub
@@ -106,6 +104,7 @@ export async function GET(request: Request) {
             COUNT(*)::int AS qtd
           FROM transactions
           WHERE account_id = ANY(${accountIds}::uuid[])
+            AND user_id = ${userId}
             AND amount < 0
             AND (
               description ILIKE '%transferência%' OR
@@ -118,7 +117,7 @@ export async function GET(request: Request) {
           ORDER BY total DESC
           LIMIT 5`,
       ]);
-      // Top 8 categorias + agrupar resto em "Outros"
+
       const allCategories = catRows.map((r) => ({
         category: translateCategory(r.category),
         total: Number(r.total) || 0,

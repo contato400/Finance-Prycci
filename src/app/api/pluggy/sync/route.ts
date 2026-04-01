@@ -17,6 +17,7 @@ export async function POST(request: Request) {
   try {
     const auth = await requireAuth(request);
     if (auth instanceof NextResponse) return auth;
+    const { userId } = auth;
 
     const pluggyId = (process.env.PLUGGY_CLIENT_ID || "").trim();
     const pluggySecret = (process.env.PLUGGY_CLIENT_SECRET || "").trim();
@@ -44,7 +45,7 @@ export async function POST(request: Request) {
     }
 
     const savedItems = await sql<{ id: string; item_id: string; institution_name: string }[]>`
-      SELECT id, item_id, institution_name FROM pluggy_items ORDER BY created_at DESC
+      SELECT id, item_id, institution_name FROM pluggy_items WHERE user_id = ${userId} ORDER BY created_at DESC
     `;
 
     if (savedItems.length === 0) {
@@ -66,11 +67,11 @@ export async function POST(request: Request) {
 
         await sql`UPDATE pluggy_items SET status = ${item.status}, institution_name = ${item.connector.name} WHERE id = ${dbItem.id}::uuid`;
 
-        const acct = await syncAccounts(pluggy, dbItem, item.connector.name, log);
+        const acct = await syncAccounts(pluggy, dbItem, item.connector.name, userId, log);
         const [txCount, invCount, loanCount] = await Promise.all([
-          syncTransactions(pluggy, dbItem, log),
-          syncInvestments(pluggy, dbItem, log),
-          syncLoans(pluggy, dbItem, item.connector.name, log),
+          syncTransactions(pluggy, dbItem, userId, log),
+          syncInvestments(pluggy, dbItem, userId, log),
+          syncLoans(pluggy, dbItem, item.connector.name, userId, log),
         ]);
 
         log(`  OK: ${acct.bankAccounts}bank ${acct.creditAccounts}credit ${txCount}tx`);
@@ -102,10 +103,10 @@ export async function POST(request: Request) {
     log("Atualizando cache...");
     try {
       const [balRow, crRow, invRow, bnkRow] = await Promise.all([
-        sql`SELECT COALESCE(SUM(balance),0)::float AS v FROM accounts WHERE type NOT IN ('CREDIT','CREDIT_CARD')`,
-        sql`SELECT COALESCE(SUM(ABS(balance)),0)::float AS used, COALESCE(SUM(COALESCE(credit_limit,0)),0)::float AS lim FROM accounts WHERE type IN ('CREDIT','CREDIT_CARD')`,
-        sql`SELECT COALESCE(SUM(balance),0)::float AS v FROM investments`,
-        sql`SELECT COUNT(*)::int AS v FROM pluggy_items`,
+        sql`SELECT COALESCE(SUM(balance),0)::float AS v FROM accounts WHERE user_id = ${userId} AND type NOT IN ('CREDIT','CREDIT_CARD')`,
+        sql`SELECT COALESCE(SUM(ABS(balance)),0)::float AS used, COALESCE(SUM(COALESCE(credit_limit,0)),0)::float AS lim FROM accounts WHERE user_id = ${userId} AND type IN ('CREDIT','CREDIT_CARD')`,
+        sql`SELECT COALESCE(SUM(balance),0)::float AS v FROM investments WHERE user_id = ${userId}`,
+        sql`SELECT COUNT(*)::int AS v FROM pluggy_items WHERE user_id = ${userId}`,
       ]);
       const tb = Number(balRow[0]?.v) || 0;
       const tcu = Number(crRow[0]?.used) || 0;
@@ -113,7 +114,7 @@ export async function POST(request: Request) {
       const ti = Number(invRow[0]?.v) || 0;
       const cb = Number(bnkRow[0]?.v) || 0;
       const cacheData = { totalBalance: tb, totalCreditUsed: tcu, totalCreditLimit: tcl, totalInvested: ti, netBalance: tb + ti - tcu, connectedBanks: cb };
-      await sql`INSERT INTO dashboard_cache (id, data, updated_at) VALUES (1, ${JSON.stringify(cacheData)}::jsonb, NOW()) ON CONFLICT (id) DO UPDATE SET data = EXCLUDED.data, updated_at = NOW()`;
+      await sql`INSERT INTO dashboard_cache (id, user_id, data, updated_at) VALUES (1, ${userId}, ${JSON.stringify(cacheData)}::jsonb, NOW()) ON CONFLICT (user_id) DO UPDATE SET data = EXCLUDED.data, updated_at = NOW()`;
       log(`Cache OK: bal=${tb} cr=${tcu}/${tcl} inv=${ti}`);
     } catch (cacheErr) {
       log(`Cache ERRO: ${cacheErr instanceof Error ? cacheErr.message : String(cacheErr)}`);
@@ -135,7 +136,7 @@ export async function POST(request: Request) {
 
 // --- Helper functions ---
 
-async function syncAccounts(pluggy: Pluggy, dbItem: { id: string; item_id: string }, institutionName: string, log: LogFn) {
+async function syncAccounts(pluggy: Pluggy, dbItem: { id: string; item_id: string }, institutionName: string, userId: string, log: LogFn) {
   let bankAccounts = 0, creditAccounts = 0, creditCards = 0;
   const { results: accounts } = await pluggy.fetchAccounts(dbItem.item_id);
   log(`  ${accounts.length} contas`);
@@ -144,9 +145,9 @@ async function syncAccounts(pluggy: Pluggy, dbItem: { id: string; item_id: strin
     try {
       const isCreditAccount = account.type === "CREDIT";
       const [upserted] = await sql`
-        INSERT INTO accounts (item_id, pluggy_account_id, name, type, balance, credit_limit, currency, updated_at)
+        INSERT INTO accounts (item_id, pluggy_account_id, name, type, balance, credit_limit, currency, user_id, updated_at)
         VALUES (${dbItem.id}::uuid, ${account.id}, ${account.name}, ${account.subtype || account.type},
-                ${account.balance}, ${account.creditData?.creditLimit || 0}, ${account.currencyCode}, now())
+                ${account.balance}, ${account.creditData?.creditLimit || 0}, ${account.currencyCode}, ${userId}, now())
         ON CONFLICT (pluggy_account_id) DO UPDATE SET
           name = EXCLUDED.name, type = EXCLUDED.type, balance = EXCLUDED.balance,
           credit_limit = EXCLUDED.credit_limit, currency = EXCLUDED.currency, updated_at = now()
@@ -171,7 +172,7 @@ async function syncAccounts(pluggy: Pluggy, dbItem: { id: string; item_id: strin
   return { bankAccounts, creditAccounts, creditCards };
 }
 
-async function syncTransactions(pluggy: Pluggy, dbItem: { id: string; item_id: string }, log: LogFn) {
+async function syncTransactions(pluggy: Pluggy, dbItem: { id: string; item_id: string }, userId: string, log: LogFn) {
   let count = 0;
   const dbAccounts = await sql<{ id: string; pluggy_account_id: string; type: string }[]>`
     SELECT id, pluggy_account_id, type FROM accounts WHERE item_id = ${dbItem.id}::uuid`;
@@ -185,8 +186,8 @@ async function syncTransactions(pluggy: Pluggy, dbItem: { id: string; item_id: s
       log(`  ${txs.length} tx (${acct.type})`);
       for (const tx of txs as PluggyTransaction[]) {
         const txDate = typeof tx.date === "string" ? tx.date : new Date(tx.date).toISOString().split("T")[0];
-        await sql`INSERT INTO transactions (account_id, pluggy_transaction_id, description, amount, date, category, type)
-          VALUES (${acct.id}::uuid, ${tx.id}, ${tx.description}, ${tx.amount}, ${txDate}, ${tx.category || null}, ${tx.type})
+        await sql`INSERT INTO transactions (account_id, pluggy_transaction_id, description, amount, date, category, type, user_id)
+          VALUES (${acct.id}::uuid, ${tx.id}, ${tx.description}, ${tx.amount}, ${txDate}, ${tx.category || null}, ${tx.type}, ${userId})
           ON CONFLICT (pluggy_transaction_id) DO UPDATE SET description = EXCLUDED.description, amount = EXCLUDED.amount, date = EXCLUDED.date, category = EXCLUDED.category, type = EXCLUDED.type`;
       }
       count += txs.length;
@@ -195,14 +196,14 @@ async function syncTransactions(pluggy: Pluggy, dbItem: { id: string; item_id: s
   return count;
 }
 
-async function syncInvestments(pluggy: Pluggy, dbItem: { id: string; item_id: string }, log: LogFn) {
+async function syncInvestments(pluggy: Pluggy, dbItem: { id: string; item_id: string }, userId: string, log: LogFn) {
   let count = 0;
   try {
     const { results: invs } = await pluggy.fetchInvestments(dbItem.item_id);
     log(`  ${invs.length} inv`);
     for (const inv of invs) {
-      await sql`INSERT INTO investments (item_id, pluggy_investment_id, name, type, balance, quantity, value, updated_at)
-        VALUES (${dbItem.id}::uuid, ${inv.id}, ${inv.name}, ${inv.type}, ${inv.balance}, ${inv.quantity || 0}, ${inv.value || 0}, now())
+      await sql`INSERT INTO investments (item_id, pluggy_investment_id, name, type, balance, quantity, value, user_id, updated_at)
+        VALUES (${dbItem.id}::uuid, ${inv.id}, ${inv.name}, ${inv.type}, ${inv.balance}, ${inv.quantity || 0}, ${inv.value || 0}, ${userId}, now())
         ON CONFLICT (pluggy_investment_id) DO UPDATE SET name = EXCLUDED.name, type = EXCLUDED.type, balance = EXCLUDED.balance, quantity = EXCLUDED.quantity, value = EXCLUDED.value, updated_at = now()`;
       count++;
     }
@@ -210,7 +211,7 @@ async function syncInvestments(pluggy: Pluggy, dbItem: { id: string; item_id: st
   return count;
 }
 
-async function syncLoans(pluggy: Pluggy, dbItem: { id: string; item_id: string }, institutionName: string, log: LogFn) {
+async function syncLoans(pluggy: Pluggy, dbItem: { id: string; item_id: string }, institutionName: string, userId: string, log: LogFn) {
   let count = 0;
   try {
     const { results: loans } = await pluggy.fetchLoans(dbItem.item_id);

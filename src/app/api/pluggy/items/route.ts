@@ -10,6 +10,7 @@ export async function POST(request: Request) {
   try {
     const auth = await requireAuth(request);
     if (auth instanceof NextResponse) return auth;
+    const { userId } = auth;
 
     const { itemId } = (await request.json()) as { itemId: string };
     if (!itemId) {
@@ -20,8 +21,8 @@ export async function POST(request: Request) {
     const item = await pluggy.fetchItem(itemId);
 
     const [row] = await sql`
-      INSERT INTO pluggy_items (item_id, institution_name, status)
-      VALUES (${itemId}, ${item.connector.name}, ${item.status})
+      INSERT INTO pluggy_items (item_id, institution_name, status, user_id)
+      VALUES (${itemId}, ${item.connector.name}, ${item.status}, ${userId})
       ON CONFLICT (item_id) DO UPDATE SET
         institution_name = EXCLUDED.institution_name,
         status = EXCLUDED.status
@@ -35,14 +36,15 @@ export async function POST(request: Request) {
   }
 }
 
-// Lista todos os items conectados
+// Lista todos os items conectados do usuário
 export async function GET(request: Request) {
   try {
     const auth = await requireAuth(request);
     if (auth instanceof NextResponse) return auth;
+    const { userId } = auth;
 
     const items = await sql`
-      SELECT * FROM pluggy_items ORDER BY created_at DESC
+      SELECT * FROM pluggy_items WHERE user_id = ${userId} ORDER BY created_at DESC
     `;
 
     return NextResponse.json({ items });

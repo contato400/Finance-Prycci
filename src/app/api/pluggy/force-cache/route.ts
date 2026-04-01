@@ -15,18 +15,19 @@ export async function POST(request: Request) {
   try {
     const auth = await requireAuth(request);
     if (auth instanceof NextResponse) return auth;
+    const { userId } = auth;
 
-    // Calcular tudo com queries simples separadas (mais confiável que jsonb_build_object com subqueries)
     const [balanceRow, creditRow, invRow, bankCount, accountsList] = await Promise.all([
-      sql`SELECT COALESCE(SUM(balance), 0)::float AS total FROM accounts WHERE type NOT IN ('CREDIT', 'CREDIT_CARD')`,
+      sql`SELECT COALESCE(SUM(balance), 0)::float AS total FROM accounts WHERE user_id = ${userId} AND type NOT IN ('CREDIT', 'CREDIT_CARD')`,
       sql`SELECT COALESCE(SUM(ABS(balance)), 0)::float AS total_used,
                  COALESCE(SUM(COALESCE(credit_limit, 0)), 0)::float AS total_limit
-          FROM accounts WHERE type IN ('CREDIT', 'CREDIT_CARD')`,
-      sql`SELECT COALESCE(SUM(balance), 0)::float AS total, COUNT(*)::int AS count FROM investments`,
-      sql`SELECT COUNT(*)::int AS total FROM pluggy_items`,
+          FROM accounts WHERE user_id = ${userId} AND type IN ('CREDIT', 'CREDIT_CARD')`,
+      sql`SELECT COALESCE(SUM(balance), 0)::float AS total, COUNT(*)::int AS count FROM investments WHERE user_id = ${userId}`,
+      sql`SELECT COUNT(*)::int AS total FROM pluggy_items WHERE user_id = ${userId}`,
       sql`SELECT a.type, a.balance::float AS balance, COALESCE(a.credit_limit,0)::float AS credit_limit,
                  p.institution_name
-          FROM accounts a JOIN pluggy_items p ON a.item_id = p.id`,
+          FROM accounts a JOIN pluggy_items p ON a.item_id = p.id
+          WHERE a.user_id = ${userId}`,
     ]);
 
     const totalBalance = num(balanceRow[0]?.total);
@@ -37,7 +38,6 @@ export async function POST(request: Request) {
     const connectedBanks = num(bankCount[0]?.total);
     const netBalance = totalBalance + totalInvested - totalCreditUsed;
 
-    // Instituições agrupadas
     const instMap = new Map<string, { name: string; balance: number; creditLimit: number; creditUsed: number }>();
     for (const a of accountsList) {
       const name = a.institution_name || "Desconhecido";
@@ -52,31 +52,17 @@ export async function POST(request: Request) {
     }
 
     const cacheData = {
-      totalBalance,
-      totalCreditUsed,
-      totalCreditLimit,
-      totalInvested,
-      investmentCount,
-      netBalance,
-      connectedBanks,
-      institutions: Array.from(instMap.values()),
+      totalBalance, totalCreditUsed, totalCreditLimit, totalInvested, investmentCount,
+      netBalance, connectedBanks, institutions: Array.from(instMap.values()),
     };
 
-    // Salvar como JSON string → JSONB
     await sql`
-      INSERT INTO dashboard_cache (id, data, updated_at)
-      VALUES (1, ${JSON.stringify(cacheData)}::jsonb, NOW())
-      ON CONFLICT (id) DO UPDATE SET data = EXCLUDED.data, updated_at = NOW()
+      INSERT INTO dashboard_cache (user_id, data, updated_at)
+      VALUES (${userId}, ${JSON.stringify(cacheData)}::jsonb, NOW())
+      ON CONFLICT (user_id) DO UPDATE SET data = EXCLUDED.data, updated_at = NOW()
     `;
 
-    // Verificar que foi salvo
-    const verify = await sql`SELECT data FROM dashboard_cache WHERE id = 1`;
-
-    return Response.json({
-      message: "Cache atualizado com sucesso",
-      saved: cacheData,
-      verified: verify[0]?.data || null,
-    });
+    return Response.json({ message: "Cache atualizado com sucesso", saved: cacheData });
   } catch (error) {
     console.error("FORCE-CACHE ERROR:", error instanceof Error ? error.message : String(error));
     return Response.json({ error: error instanceof Error ? error.message : String(error) }, { status: 500 });

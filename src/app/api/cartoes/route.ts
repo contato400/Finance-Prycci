@@ -17,6 +17,7 @@ export async function GET(request: Request) {
   try {
     const auth = await requireAuth(request);
     if (auth instanceof NextResponse) return auth;
+    const { userId } = auth;
 
     const { searchParams } = new URL(request.url);
     const cardId = searchParams.get("cardId");
@@ -24,7 +25,6 @@ export async function GET(request: Request) {
     const start = searchParams.get("start") ?? new Date(now.getFullYear(), now.getMonth(), 1).toISOString().split("T")[0];
     const end = searchParams.get("end") ?? new Date(now.getFullYear(), now.getMonth() + 1, 0).toISOString().split("T")[0];
 
-    // Sem CASE hardcoded — usa institution_name direto da Pluggy
     const cards = await sql`
       SELECT a.id, a.pluggy_account_id, a.name, a.type,
              a.balance::float as balance,
@@ -33,7 +33,8 @@ export async function GET(request: Request) {
              p.institution_name
       FROM accounts a
       JOIN pluggy_items p ON a.item_id = p.id
-      WHERE a.type IN ('CREDIT', 'CREDIT_CARD')
+      WHERE a.user_id = ${userId}
+        AND a.type IN ('CREDIT', 'CREDIT_CARD')
       ORDER BY a.updated_at DESC`;
 
     const enrichedCards = cards.map((c) => {
@@ -42,8 +43,6 @@ export async function GET(request: Request) {
       const availableLimit = Math.max(creditLimit - usedBalance, 0);
       const last4 = c.pluggy_account_id?.slice(-4) || "****";
       const banco = translateInstitution(c.institution_name);
-
-      // Limpa nome do cartão
       const cardName = (c.name || "").trim() || banco;
 
       return {
@@ -64,6 +63,7 @@ export async function GET(request: Request) {
       const rawTx = await sql`
         SELECT *, amount::float as amount FROM transactions
         WHERE account_id = ${cardId}::uuid
+          AND user_id = ${userId}
           AND date >= ${start} AND date <= ${end}
         ORDER BY date DESC LIMIT 50`;
       transactions = rawTx.map((tx) => ({ ...tx, category: translateCategory(tx.category) }));
