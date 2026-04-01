@@ -27,14 +27,8 @@ export default function LoginPage() {
     });
 
     if (authError) {
-      const msg = authError.message;
-      if (msg.includes("Failed to fetch") || msg.includes("fetch")) {
-        setError("Erro de conexão com o servidor de autenticação.");
-      } else if (msg === "Invalid login credentials") {
-        setError("Email ou senha incorretos");
-      } else {
-        setError(msg);
-      }
+      console.error("Supabase login error:", authError);
+      setError(authError.message);
       setLoading(false);
     } else {
       router.push("/dashboard");
