@@ -8,6 +8,8 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { formatCurrency } from "@/lib/utils";
 import { apiFetch } from "@/lib/api-client";
 import { BankAvatar } from "@/components/bank-avatar";
+import { UpgradeOverlay } from "@/components/upgrade-overlay";
+import { usePlan } from "@/hooks/use-plan";
 import { toast } from "@/hooks/use-toast";
 import {
   ShieldCheck, AlertTriangle, CreditCard, Calculator, Search,
@@ -51,6 +53,7 @@ export default function CreditoPage() {
   const [simValor, setSimValor] = useState(10000);
   const [simPrazo, setSimPrazo] = useState(24);
   const [simTaxa, setSimTaxa] = useState(1.99);
+  const { isPro, loading: planLoading } = usePlan();
   // CPF
   const [cpfInst, setCpfInst] = useState("");
   const [cpfType, setCpfType] = useState("Consulta de crédito");
@@ -157,6 +160,7 @@ export default function CreditoPage() {
       </Card>
 
       {/* ═══ SEÇÃO 3: Simulador de Financiamento ═══ */}
+      <UpgradeOverlay feature="Simulador de Financiamento" locked={!planLoading && !isPro}>
       <Card className="border-slate-800 bg-slate-900">
         <CardHeader><CardTitle className="flex items-center gap-2 text-white"><Calculator className="h-5 w-5" />Simulador de Financiamento</CardTitle></CardHeader>
         <CardContent>
@@ -203,6 +207,7 @@ export default function CreditoPage() {
           </div>
         </CardContent>
       </Card>
+      </UpgradeOverlay>
 
       {/* ═══ SEÇÃO 4: Cartões de Crédito ═══ */}
       <Card className="border-slate-800 bg-slate-900">

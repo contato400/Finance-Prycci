@@ -11,13 +11,11 @@ export async function GET(request: Request) {
     const { userId } = auth;
 
     const rows = await sql`
-      SELECT plan, status, expires_at
-      FROM user_plans
+      SELECT plan, status FROM user_plans
       WHERE user_id = ${userId} AND status = 'active'
       LIMIT 1`;
 
     if (rows.length === 0) {
-      // Cria plano free para novos usuários
       await sql`
         INSERT INTO user_plans (user_id, plan, status)
         VALUES (${userId}, 'free', 'active')
@@ -25,15 +23,8 @@ export async function GET(request: Request) {
       return NextResponse.json({ plan: "free", status: "active" });
     }
 
-    const row = rows[0];
-    // Verificar se expirou
-    if (row.expires_at && new Date(row.expires_at) < new Date()) {
-      await sql`UPDATE user_plans SET plan = 'free', status = 'active', expires_at = NULL WHERE user_id = ${userId}`;
-      return NextResponse.json({ plan: "free", status: "active" });
-    }
-
-    return NextResponse.json({ plan: row.plan, status: row.status });
+    return NextResponse.json({ plan: rows[0].plan, status: rows[0].status });
   } catch {
-    return NextResponse.json({ plan: "free", status: "active" }); // fallback seguro
+    return NextResponse.json({ plan: "free", status: "active" });
   }
 }

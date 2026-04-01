@@ -1,18 +1,10 @@
 -- Tabela de planos de usuário
 CREATE TABLE IF NOT EXISTS user_plans (
-  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  user_id TEXT NOT NULL UNIQUE,
+  user_id TEXT PRIMARY KEY,
   plan TEXT NOT NULL DEFAULT 'free',
-  -- 'free' | 'pro' | 'business'
   status TEXT NOT NULL DEFAULT 'active',
-  -- 'active' | 'canceled' | 'past_due'
-  stripe_customer_id TEXT,
-  stripe_subscription_id TEXT,
-  created_at TIMESTAMPTZ DEFAULT NOW(),
-  expires_at TIMESTAMPTZ
+  created_at TIMESTAMPTZ DEFAULT NOW()
 );
-
-CREATE INDEX IF NOT EXISTS idx_user_plans_user_id ON user_plans(user_id);
 
 -- RLS
 ALTER TABLE user_plans ENABLE ROW LEVEL SECURITY;
@@ -20,3 +12,18 @@ ALTER TABLE user_plans ENABLE ROW LEVEL SECURITY;
 DROP POLICY IF EXISTS "users_own_plan" ON user_plans;
 CREATE POLICY "users_own_plan" ON user_plans
   FOR ALL USING (auth.uid()::text = user_id);
+
+-- Trigger: criar plano free automaticamente para novos usuários
+CREATE OR REPLACE FUNCTION create_user_plan()
+RETURNS TRIGGER AS $$
+BEGIN
+  INSERT INTO user_plans (user_id, plan) VALUES (NEW.id::text, 'free')
+  ON CONFLICT (user_id) DO NOTHING;
+  RETURN NEW;
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER;
+
+DROP TRIGGER IF EXISTS on_auth_user_created ON auth.users;
+CREATE TRIGGER on_auth_user_created
+  AFTER INSERT ON auth.users
+  FOR EACH ROW EXECUTE FUNCTION create_user_plan();
