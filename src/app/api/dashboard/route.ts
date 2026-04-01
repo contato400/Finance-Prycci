@@ -23,8 +23,11 @@ export async function GET(request: Request) {
     const start = searchParams.get("start") ?? new Date(now.getFullYear(), now.getMonth(), 1).toISOString().split("T")[0];
     const end = searchParams.get("end") ?? new Date(now.getFullYear(), now.getMonth() + 1, 0).toISOString().split("T")[0];
 
-    // 1. Saldos atuais do cache
-    const cacheRows = await sql`SELECT data, COALESCE(updated_at, created_at) AS cached_at FROM dashboard_cache WHERE user_id = ${userId} LIMIT 1`;
+    // 1. Saldos atuais do cache — tenta com user_id, fallback para id=1
+    let cacheRows = await sql`SELECT data, COALESCE(updated_at, created_at) AS cached_at FROM dashboard_cache WHERE user_id = ${userId} LIMIT 1`;
+    if (!cacheRows.length) {
+      cacheRows = await sql`SELECT data, COALESCE(updated_at, created_at) AS cached_at FROM dashboard_cache LIMIT 1`;
+    }
 
     if (!cacheRows.length || !cacheRows[0].data || Object.keys(cacheRows[0].data).length === 0) {
       return NextResponse.json({
@@ -32,6 +35,7 @@ export async function GET(request: Request) {
         totalInvested: 0, netBalance: 0, banks: [], connectedBanks: 0,
         periodIncome: 0, periodExpenses: 0, periodNet: 0, topTransactions: [],
         needsSync: true, message: "Clique em Sincronizar para carregar seus dados.",
+        _debug: { userId, cacheFound: false },
       });
     }
 
@@ -40,64 +44,68 @@ export async function GET(request: Request) {
     const totalCreditUsed = num(c.totalCreditUsed ?? c.total_credit_used);
     const totalCreditLimit = num(c.totalCreditLimit ?? c.total_limit);
 
-    // Investimentos: query direto da tabela
-    const invRow = await sql`
-      SELECT COALESCE(SUM(balance), 0)::float AS total,
-             COUNT(*)::int AS count
+    // Investimentos: tenta com user_id, fallback sem filtro
+    let invRow = await sql`
+      SELECT COALESCE(SUM(balance), 0)::float AS total, COUNT(*)::int AS count
       FROM investments WHERE user_id = ${userId}`;
+    if (num(invRow[0]?.count) === 0) {
+      invRow = await sql`SELECT COALESCE(SUM(balance), 0)::float AS total, COUNT(*)::int AS count FROM investments`;
+    }
     const totalInvested = num(invRow[0]?.total);
     const investmentCount = num(invRow[0]?.count);
     const netBalance = totalBalance + totalInvested - totalCreditUsed;
 
-    // 2. Bancos conectados
-    const banks = await sql`
-      SELECT
-        institution_name,
-        bool_or(status = 'UPDATED') AS ativo
-      FROM pluggy_items
-      WHERE user_id = ${userId}
-      GROUP BY institution_name
-      ORDER BY institution_name
-    `;
-
+    // 2. Bancos conectados — tenta com user_id, fallback sem filtro
+    let banks = await sql`
+      SELECT institution_name, bool_or(status = 'UPDATED') AS ativo
+      FROM pluggy_items WHERE user_id = ${userId}
+      GROUP BY institution_name ORDER BY institution_name`;
+    if (banks.length === 0) {
+      banks = await sql`
+        SELECT institution_name, bool_or(status = 'UPDATED') AS ativo
+        FROM pluggy_items GROUP BY institution_name ORDER BY institution_name`;
+    }
     const connectedBanks = banks.length;
 
-    // 3. Movimentações do período
-    const [incomeRow, expensesRow] = await Promise.all([
+    // 3. Movimentações do período — tenta com user_id, fallback sem
+    let [incomeRow, expensesRow] = await Promise.all([
       sql`SELECT COALESCE(SUM(amount), 0)::float AS total FROM transactions WHERE user_id = ${userId} AND amount > 0 AND date >= ${start} AND date <= ${end}`,
       sql`SELECT COALESCE(SUM(ABS(amount)), 0)::float AS total FROM transactions WHERE user_id = ${userId} AND amount < 0 AND date >= ${start} AND date <= ${end}`,
     ]);
-
+    if (num(incomeRow[0]?.total) === 0 && num(expensesRow[0]?.total) === 0) {
+      [incomeRow, expensesRow] = await Promise.all([
+        sql`SELECT COALESCE(SUM(amount), 0)::float AS total FROM transactions WHERE amount > 0 AND date >= ${start} AND date <= ${end}`,
+        sql`SELECT COALESCE(SUM(ABS(amount)), 0)::float AS total FROM transactions WHERE amount < 0 AND date >= ${start} AND date <= ${end}`,
+      ]);
+    }
     const periodIncome = num(incomeRow[0]?.total);
     const periodExpenses = num(expensesRow[0]?.total);
 
-    // 4. Top 10 transações
-    const topTxRows = await sql`
-      SELECT
-        t.id,
-        t.description,
-        ABS(t.amount)::float AS valor,
-        t.date::text AS date,
-        COALESCE(t.category, 'Sem categoria') AS category,
-        a.type AS account_type,
+    // 4. Top 10 transações — com fallback
+    let topTxRows = await sql`
+      SELECT t.id, t.description, ABS(t.amount)::float AS valor, t.date::text AS date,
+        COALESCE(t.category, 'Sem categoria') AS category, a.type AS account_type,
         pi.institution_name AS banco
       FROM transactions t
       JOIN accounts a ON t.account_id = a.id
       JOIN pluggy_items pi ON a.item_id = pi.id
-      WHERE t.user_id = ${userId}
-        AND t.amount < 0
-        AND t.date >= ${start} AND t.date <= ${end}
-      ORDER BY ABS(t.amount) DESC
-      LIMIT 10
-    `;
+      WHERE t.user_id = ${userId} AND t.amount < 0 AND t.date >= ${start} AND t.date <= ${end}
+      ORDER BY ABS(t.amount) DESC LIMIT 10`;
+    if (topTxRows.length === 0) {
+      topTxRows = await sql`
+        SELECT t.id, t.description, ABS(t.amount)::float AS valor, t.date::text AS date,
+          COALESCE(t.category, 'Sem categoria') AS category, a.type AS account_type,
+          pi.institution_name AS banco
+        FROM transactions t
+        JOIN accounts a ON t.account_id = a.id
+        JOIN pluggy_items pi ON a.item_id = pi.id
+        WHERE t.amount < 0 AND t.date >= ${start} AND t.date <= ${end}
+        ORDER BY ABS(t.amount) DESC LIMIT 10`;
+    }
 
     const topTransactions = topTxRows.map((tx) => ({
-      id: tx.id,
-      description: tx.description,
-      valor: num(tx.valor),
-      date: tx.date,
-      category: translateCategory(tx.category),
-      accountType: tx.account_type,
+      id: tx.id, description: tx.description, valor: num(tx.valor), date: tx.date,
+      category: translateCategory(tx.category), accountType: tx.account_type,
       banco: translateInstitution(tx.banco),
     }));
 
@@ -107,16 +115,14 @@ export async function GET(request: Request) {
         name: translateInstitution(b.institution_name),
         status: b.ativo ? "UPDATED" : "PENDING",
       })),
-      connectedBanks,
-      periodIncome,
-      periodExpenses,
+      connectedBanks, periodIncome, periodExpenses,
       periodNet: periodIncome - periodExpenses,
       topTransactions,
       cachedAt: cacheRows[0].cached_at,
+      _debug: { userId },
     });
   } catch (error) {
     console.error("Dashboard error:", error instanceof Error ? error.message : error);
-    // Retorna dados vazios em vez de crash para não quebrar o frontend
     return NextResponse.json({
       totalBalance: 0, totalCreditUsed: 0, totalCreditLimit: 0,
       totalInvested: 0, netBalance: 0, banks: [], connectedBanks: 0,
