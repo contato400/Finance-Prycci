@@ -9,7 +9,6 @@ export async function GET(request: Request) {
   try {
     const auth = await requireAuth(request);
     if (auth instanceof NextResponse) return auth;
-    const { userId } = auth;
 
     // 1. Todas as conexões + contas (visão completa)
     const allItemsAndAccounts = await sql`

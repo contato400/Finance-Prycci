@@ -33,7 +33,7 @@ export async function GET(request: Request) {
     }
 
     return NextResponse.json({ plan: row.plan, status: row.status });
-  } catch (error) {
+  } catch {
     return NextResponse.json({ plan: "free", status: "active" }); // fallback seguro
   }
 }

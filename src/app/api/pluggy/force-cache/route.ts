@@ -13,7 +13,6 @@ export async function POST(request: Request) {
   try {
     const auth = await requireAuth(request);
     if (auth instanceof NextResponse) return auth;
-    const { userId } = auth;
 
     // Calcular tudo com queries simples separadas (mais confiável que jsonb_build_object com subqueries)
     const [balanceRow, creditRow, invRow, bankCount, accountsList] = await Promise.all([

@@ -14,7 +14,6 @@ export async function GET(request: Request) {
   try {
     const auth = await requireAuth(request);
     if (auth instanceof NextResponse) return auth;
-    const { userId } = auth;
 
     const investments = await sql`
       SELECT i.*, i.balance::float as balance,

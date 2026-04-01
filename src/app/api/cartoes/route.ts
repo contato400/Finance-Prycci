@@ -17,7 +17,6 @@ export async function GET(request: Request) {
   try {
     const auth = await requireAuth(request);
     if (auth instanceof NextResponse) return auth;
-    const { userId } = auth;
 
     const { searchParams } = new URL(request.url);
     const cardId = searchParams.get("cardId");

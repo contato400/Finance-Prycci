@@ -15,7 +15,6 @@ export async function POST(request: Request) {
   try {
     const auth = await requireAuth(request);
     if (auth instanceof NextResponse) return auth;
-    const { userId } = auth;
 
     // Query combinada: métricas de contas + investimentos em 1 query
     const [totals] = await sql`

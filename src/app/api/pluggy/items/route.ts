@@ -8,7 +8,6 @@ export async function POST(request: Request) {
   try {
     const auth = await requireAuth(request);
     if (auth instanceof NextResponse) return auth;
-    const { userId } = auth;
 
     const { itemId } = (await request.json()) as { itemId: string };
     if (!itemId) {
@@ -39,7 +38,6 @@ export async function GET(request: Request) {
   try {
     const auth = await requireAuth(request);
     if (auth instanceof NextResponse) return auth;
-    const { userId } = auth;
 
     const items = await sql`
       SELECT * FROM pluggy_items ORDER BY created_at DESC

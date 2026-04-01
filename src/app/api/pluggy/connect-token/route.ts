@@ -7,7 +7,6 @@ export async function POST(request: Request) {
   try {
     const auth = await requireAuth(request);
     if (auth instanceof NextResponse) return auth;
-    const { userId } = auth;
 
     const body = await request.json().catch(() => ({}));
     const itemId = (body as { itemId?: string }).itemId;
