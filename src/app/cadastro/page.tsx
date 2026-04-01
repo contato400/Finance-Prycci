@@ -22,6 +22,9 @@ export default function CadastroPage() {
     setLoading(true);
     setError("");
 
+    console.log("SUPABASE_URL:", process.env.NEXT_PUBLIC_SUPABASE_URL);
+    console.log("KEY_PREFIX:", process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY?.substring(0, 15));
+
     if (password.length < 6) {
       setError("A senha deve ter pelo menos 6 caracteres");
       setLoading(false);
