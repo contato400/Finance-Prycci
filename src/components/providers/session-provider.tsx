@@ -31,14 +31,16 @@ export function AuthSessionProvider({ children }: { children: React.ReactNode })
     const supabase = createSupabaseBrowser();
 
     // Get initial session
-    supabase.auth.getSession().then(({ data: { session: s } }) => {
+    supabase.auth.getSession().then((result: { data: { session: Session | null } }) => {
+      const s = result.data.session;
       setSession(s);
       setUser(s?.user ?? null);
       setLoading(false);
     });
 
     // Listen for auth changes
-    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, s) => {
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event: string, newSession: Session | null) => {
+      const s = newSession;
       setSession(s);
       setUser(s?.user ?? null);
       setLoading(false);
