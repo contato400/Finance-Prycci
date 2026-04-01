@@ -57,9 +57,9 @@ export async function POST(request: Request) {
     };
 
     await sql`
-      INSERT INTO dashboard_cache (user_id, data, updated_at)
+      INSERT INTO dashboard_cache (user_id, data, created_at)
       VALUES (${userId}, ${JSON.stringify(cacheData)}::jsonb, NOW())
-      ON CONFLICT (user_id) DO UPDATE SET data = EXCLUDED.data, updated_at = NOW()
+      ON CONFLICT (user_id) DO UPDATE SET data = EXCLUDED.data, created_at = NOW()
     `;
 
     return Response.json({ message: "Cache atualizado com sucesso", saved: cacheData });
