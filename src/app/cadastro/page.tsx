@@ -123,12 +123,17 @@ export default function CadastroPage() {
               {loading ? "Criando..." : "Criar conta"}
             </Button>
           </form>
-          <p className="mt-4 text-center text-sm text-slate-500">
-            Já tem conta?{" "}
-            <Link href="/login" className="text-emerald-400 hover:underline">
-              Entrar
+          <div className="mt-4 space-y-1 text-center text-sm">
+            <p className="text-slate-500">
+              Já tem conta?{" "}
+              <Link href="/login" className="text-emerald-400 hover:underline">
+                Entrar
+              </Link>
+            </p>
+            <Link href="/pricing" className="text-slate-500 hover:text-slate-300">
+              Ver planos
             </Link>
-          </p>
+          </div>
         </CardContent>
       </Card>
     </div>

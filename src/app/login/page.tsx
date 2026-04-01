@@ -90,6 +90,11 @@ export default function LoginPage() {
             <Link href="/recuperar-senha" className="text-slate-500 hover:text-slate-300">
               Esqueci minha senha
             </Link>
+            <div>
+              <Link href="/pricing" className="text-slate-500 hover:text-slate-300">
+                Ver planos
+              </Link>
+            </div>
           </div>
         </CardContent>
       </Card>
