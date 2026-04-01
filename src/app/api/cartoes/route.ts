@@ -75,7 +75,10 @@ export async function GET(request: Request) {
 
     return NextResponse.json({ cards: enrichedCards, transactions, totalUsed, totalLimit, totalAvailable });
   } catch (error) {
-    const message = error instanceof Error ? error.message : "Erro ao buscar cartões";
-    return NextResponse.json({ error: message }, { status: 500 });
+    console.error("Cartoes error:", error instanceof Error ? error.message : error);
+    return NextResponse.json({
+      cards: [], transactions: null, totalUsed: 0, totalLimit: 0, totalAvailable: 0,
+      _error: error instanceof Error ? error.message : "Erro desconhecido",
+    });
   }
 }

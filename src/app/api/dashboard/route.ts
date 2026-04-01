@@ -115,7 +115,14 @@ export async function GET(request: Request) {
       cachedAt: cacheRows[0].updated_at,
     });
   } catch (error) {
-    const message = error instanceof Error ? error.message : "Erro ao carregar dashboard";
-    return NextResponse.json({ error: message }, { status: 500 });
+    console.error("Dashboard error:", error instanceof Error ? error.message : error);
+    // Retorna dados vazios em vez de crash para não quebrar o frontend
+    return NextResponse.json({
+      totalBalance: 0, totalCreditUsed: 0, totalCreditLimit: 0,
+      totalInvested: 0, netBalance: 0, banks: [], connectedBanks: 0,
+      periodIncome: 0, periodExpenses: 0, periodNet: 0, topTransactions: [],
+      needsSync: true, message: "Erro ao carregar dados. Tente sincronizar.",
+      _error: error instanceof Error ? error.message : "Erro desconhecido",
+    });
   }
 }

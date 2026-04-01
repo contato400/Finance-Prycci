@@ -144,7 +144,11 @@ export async function GET(request: Request) {
       page, pageSize, totalPages: Math.ceil(totalTransactions / pageSize), categoryData, topTransfers,
     });
   } catch (error) {
-    const message = error instanceof Error ? error.message : "Erro ao buscar contas";
-    return NextResponse.json({ error: message }, { status: 500 });
+    console.error("Contas error:", error instanceof Error ? error.message : error);
+    return NextResponse.json({
+      accounts: [], transactions: null, totalTransactions: 0,
+      page: 1, pageSize: 20, totalPages: 0, categoryData: [], topTransfers: [],
+      _error: error instanceof Error ? error.message : "Erro desconhecido",
+    });
   }
 }

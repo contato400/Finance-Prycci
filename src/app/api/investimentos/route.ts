@@ -66,7 +66,10 @@ export async function GET(request: Request) {
 
     return NextResponse.json({ totalInvested, totalProfit, byClass, byInstitution, assets });
   } catch (error) {
-    const message = error instanceof Error ? error.message : "Erro ao buscar investimentos";
-    return NextResponse.json({ error: message }, { status: 500 });
+    console.error("Investimentos error:", error instanceof Error ? error.message : error);
+    return NextResponse.json({
+      totalInvested: 0, totalProfit: 0, byClass: [], byInstitution: [], assets: [],
+      _error: error instanceof Error ? error.message : "Erro desconhecido",
+    });
   }
 }

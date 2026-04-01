@@ -155,7 +155,13 @@ export async function GET(request: Request) {
       recentCpfCount: num(recentCpfCount[0]?.count),
     });
   } catch (error) {
-    const message = error instanceof Error ? error.message : "Erro ao buscar crédito";
-    return NextResponse.json({ error: message }, { status: 500 });
+    console.error("Credito error:", error instanceof Error ? error.message : error);
+    return NextResponse.json({
+      scoreBreakdown: { total: 0, income: { score: 0, avgIncome: 0 }, commitment: { score: 0, ratio: 0 }, creditUsage: { score: 0, ratio: 0 }, regularity: { score: 0, monthsPaid: 0 }, diversification: { score: 0, investments: 0, banks: 0, balance: 0 } },
+      loanCapacity: { avgIncome: 0, avgExpense: 0, disponivel: 0, parcelaMax: 0, credito12x: 0, credito24x: 0, credito36x: 0 },
+      cardsByBank: [], totalCreditLimit: 0, totalCreditUsed: 0, totalCreditAvailable: 0,
+      loans: [], totalLoanDebt: 0, cpfConsultations: [], recentCpfCount: 0,
+      _error: error instanceof Error ? error.message : "Erro desconhecido",
+    });
   }
 }
