@@ -6,6 +6,7 @@ import { Button } from "@/components/ui/button";
 import { Progress } from "@/components/ui/progress";
 import { Skeleton } from "@/components/ui/skeleton";
 import { formatCurrency, formatDate } from "@/lib/utils";
+import { apiFetch } from "@/lib/api-client";
 import { useDateRange } from "@/contexts/date-range-context";
 import { toast } from "@/hooks/use-toast";
 import {
@@ -53,7 +54,7 @@ export default function CreditoPage() {
   const fetchData = useCallback(async () => {
     setLoading(true);
     try {
-      const res = await fetch(`/api/credito?start=${startStr}&end=${endStr}`);
+      const res = await apiFetch(`/api/credito?start=${startStr}&end=${endStr}`);
       const json = await res.json();
       setData(json);
       if (json.score) setScoreInput(String(json.score.score));
@@ -70,7 +71,7 @@ export default function CreditoPage() {
     }
     setSavingScore(true);
     try {
-      const res = await fetch("/api/credito/score", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ score: value }) });
+      const res = await apiFetch("/api/credito/score", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ score: value }) });
       if (!res.ok) throw new Error();
       toast({ title: "Score registrado!" });
       fetchData();
@@ -82,7 +83,7 @@ export default function CreditoPage() {
     if (!cpfInst.trim()) { toast({ title: "Informe a instituição", variant: "destructive" }); return; }
     setSavingCpf(true);
     try {
-      const res = await fetch("/api/credito/cpf", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ institution: cpfInst, type: cpfType }) });
+      const res = await apiFetch("/api/credito/cpf", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ institution: cpfInst, type: cpfType }) });
       if (!res.ok) throw new Error();
       toast({ title: "Consulta registrada!" });
       setCpfInst("");

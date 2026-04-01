@@ -1,19 +1,17 @@
 import { NextResponse } from "next/server";
-import { getServerSession } from "next-auth";
-import { authOptions } from "@/lib/auth";
+import { requireAuth } from "@/lib/api-auth";
 import sql from "@/lib/db";
 
 const PLUGGY_BASE_URL = "https://api.pluggy.ai";
 
 // Endpoint de diagnóstico — testa cada etapa separadamente
-export async function GET() {
+export async function GET(request: Request) {
   const checks: Record<string, unknown> = {};
 
   try {
-    const session = await getServerSession(authOptions);
-    if (!session) {
-      return NextResponse.json({ error: "Não autorizado" }, { status: 401 });
-    }
+    const auth = await requireAuth(request);
+    if (auth instanceof NextResponse) return auth;
+    const { userId } = auth;
 
     // 1. Variáveis de ambiente
     checks.env = {

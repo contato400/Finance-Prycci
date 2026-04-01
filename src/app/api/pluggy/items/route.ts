@@ -1,16 +1,14 @@
 import { NextResponse } from "next/server";
-import { getServerSession } from "next-auth";
-import { authOptions } from "@/lib/auth";
+import { requireAuth } from "@/lib/api-auth";
 import { createPluggyClient } from "@/lib/pluggy/client";
 import sql from "@/lib/db";
 
 // Salva um novo item do Pluggy no banco
 export async function POST(request: Request) {
   try {
-    const session = await getServerSession(authOptions);
-    if (!session) {
-      return NextResponse.json({ error: "Não autorizado" }, { status: 401 });
-    }
+    const auth = await requireAuth(request);
+    if (auth instanceof NextResponse) return auth;
+    const { userId } = auth;
 
     const { itemId } = (await request.json()) as { itemId: string };
     if (!itemId) {
@@ -37,12 +35,11 @@ export async function POST(request: Request) {
 }
 
 // Lista todos os items conectados
-export async function GET() {
+export async function GET(request: Request) {
   try {
-    const session = await getServerSession(authOptions);
-    if (!session) {
-      return NextResponse.json({ error: "Não autorizado" }, { status: 401 });
-    }
+    const auth = await requireAuth(request);
+    if (auth instanceof NextResponse) return auth;
+    const { userId } = auth;
 
     const items = await sql`
       SELECT * FROM pluggy_items ORDER BY created_at DESC

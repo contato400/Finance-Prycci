@@ -1,5 +1,5 @@
-import { getServerSession } from "next-auth";
-import { authOptions } from "@/lib/auth";
+import { NextResponse } from "next/server";
+import { requireAuth } from "@/lib/api-auth";
 import { createPluggyClient } from "@/lib/pluggy/client";
 import sql from "@/lib/db";
 import type { Transaction as PluggyTransaction } from "pluggy-sdk";
@@ -8,15 +8,14 @@ type LogFn = (msg: string) => void;
 type Pluggy = ReturnType<typeof createPluggyClient>;
 
 // IMPORTANTE: todo retorno deve ser Response.json() — nunca texto puro
-export async function POST() {
+export async function POST(request: Request) {
   const logs: string[] = [];
   const log: LogFn = (msg) => { logs.push(`[${new Date().toISOString()}] ${msg}`); };
 
   try {
-    const session = await getServerSession(authOptions);
-    if (!session) {
-      return Response.json({ error: "Não autorizado" }, { status: 401 });
-    }
+    const auth = await requireAuth(request);
+    if (auth instanceof NextResponse) return auth;
+    const { userId } = auth;
 
     const pluggyId = (process.env.PLUGGY_CLIENT_ID || "").trim();
     const pluggySecret = (process.env.PLUGGY_CLIENT_SECRET || "").trim();

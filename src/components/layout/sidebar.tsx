@@ -11,6 +11,7 @@ import {
   Brain,
   Menu,
   X,
+  UserCircle,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
@@ -24,6 +25,7 @@ const navItems = [
   { href: "/credito", label: "Crédito", icon: BarChart3 },
   { href: "/investimentos", label: "Investimentos", icon: TrendingUp },
   { href: "/insights", label: "Insights", icon: Brain },
+  { href: "/perfil", label: "Perfil", icon: UserCircle },
 ];
 
 export function Sidebar() {

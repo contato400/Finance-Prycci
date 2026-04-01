@@ -6,6 +6,7 @@ import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { CategoryChart } from "@/components/contas/category-chart";
 import { formatCurrency, formatDate } from "@/lib/utils";
+import { apiFetch } from "@/lib/api-client";
 import { useDateRange } from "@/contexts/date-range-context";
 import { BankAvatar } from "@/components/bank-avatar";
 import {
@@ -75,7 +76,7 @@ export default function ContasPage() {
       params.set("page", page.toString());
     }
     try {
-      const res = await fetch(`/api/contas?${params}`);
+      const res = await apiFetch(`/api/contas?${params}`);
       const json = await res.json();
       setData(json);
     } catch {

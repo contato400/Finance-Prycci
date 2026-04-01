@@ -1,6 +1,5 @@
-// force-cache: sem import de NextResponse — usar Response.json nativo
-import { getServerSession } from "next-auth";
-import { authOptions } from "@/lib/auth";
+import { NextResponse } from "next/server";
+import { requireAuth } from "@/lib/api-auth";
 import sql from "@/lib/db";
 
 function num(v: unknown): number {
@@ -10,12 +9,11 @@ function num(v: unknown): number {
 }
 
 // Força recálculo do dashboard_cache a partir dos dados existentes no banco
-export async function POST() {
+export async function POST(request: Request) {
   try {
-    const session = await getServerSession(authOptions);
-    if (!session) {
-      return Response.json({ error: "Não autorizado" }, { status: 401 });
-    }
+    const auth = await requireAuth(request);
+    if (auth instanceof NextResponse) return auth;
+    const { userId } = auth;
 
     // Calcular tudo com queries simples separadas (mais confiável que jsonb_build_object com subqueries)
     const [balanceRow, creditRow, invRow, bankCount, accountsList] = await Promise.all([

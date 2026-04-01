@@ -4,6 +4,7 @@ import { useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Plus } from "lucide-react";
 import { toast } from "@/hooks/use-toast";
+import { apiFetch } from "@/lib/api-client";
 
 // Componente que abre o Pluggy Connect Widget para adicionar novas contas.
 // Fluxo: gera connectToken → abre widget → onSuccess recebe itemId →
@@ -16,7 +17,7 @@ export function PluggyWidget() {
 
     try {
       // 1. Gerar connect token
-      const tokenRes = await fetch("/api/pluggy/connect-token", { method: "POST" });
+      const tokenRes = await apiFetch("/api/pluggy/connect-token", { method: "POST" });
       if (!tokenRes.ok) {
         const err = await tokenRes.json().catch(() => ({}));
         throw new Error(err.error || `Erro ao gerar token (${tokenRes.status})`);
@@ -38,7 +39,7 @@ export function PluggyWidget() {
 
           try {
             // 3. Salvar o itemId no banco (pluggy_items)
-            const saveRes = await fetch("/api/pluggy/items", {
+            const saveRes = await apiFetch("/api/pluggy/items", {
               method: "POST",
               headers: { "Content-Type": "application/json" },
               body: JSON.stringify({ itemId }),
@@ -55,11 +56,11 @@ export function PluggyWidget() {
               description: "Buscando contas, transações e investimentos.",
             });
 
-            const syncRes = await fetch("/api/pluggy/sync", { method: "POST" });
+            const syncRes = await apiFetch("/api/pluggy/sync", { method: "POST" });
             const syncData = await syncRes.json();
 
             // 5. Atualizar cache do dashboard
-            await fetch("/api/pluggy/force-cache", { method: "POST" });
+            await apiFetch("/api/pluggy/force-cache", { method: "POST" });
 
             if (syncRes.ok && syncData.synced) {
               toast({

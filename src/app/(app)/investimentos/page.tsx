@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
 import { formatCurrency } from "@/lib/utils";
+import { apiFetch } from "@/lib/api-client";
 import { InvestmentBreakdownChart } from "@/components/investimentos/breakdown-chart";
 import {
   TrendingUp,
@@ -37,7 +38,7 @@ export default function InvestimentosPage() {
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    fetch("/api/investimentos")
+    apiFetch("/api/investimentos")
       .then((res) => res.json())
       .then(setData)
       .catch(() => {})

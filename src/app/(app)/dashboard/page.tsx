@@ -9,6 +9,7 @@ import { Button } from "@/components/ui/button";
 import { PluggyWidget } from "@/components/pluggy/pluggy-widget";
 import { BankAvatar } from "@/components/bank-avatar";
 import { formatCurrency, calcPercentage, formatDate } from "@/lib/utils";
+import { apiFetch } from "@/lib/api-client";
 import { useDateRange } from "@/contexts/date-range-context";
 import {
   Wallet, CreditCard, TrendingUp, DollarSign, Building2,
@@ -74,7 +75,7 @@ export default function DashboardPage() {
     setLoading(true);
     setError(null);
     const controller = new AbortController();
-    fetch(`/api/dashboard?start=${startStr}&end=${endStr}`, { signal: controller.signal })
+    apiFetch(`/api/dashboard?start=${startStr}&end=${endStr}`, { signal: controller.signal })
       .then(async (res) => {
         const json = await res.json();
         if (!res.ok || json.error) { setError(json.error || `Erro ${res.status}`); return; }

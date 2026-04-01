@@ -1,6 +1,5 @@
 import { NextResponse } from "next/server";
-import { getServerSession } from "next-auth";
-import { authOptions } from "@/lib/auth";
+import { requireAuth } from "@/lib/api-auth";
 import sql from "@/lib/db";
 
 export const dynamic = "force-dynamic";
@@ -11,12 +10,11 @@ const TYPE_LABELS: Record<string, string> = {
 };
 
 // Retorna investimentos agrupados por classe e instituição
-export async function GET() {
+export async function GET(request: Request) {
   try {
-    const session = await getServerSession(authOptions);
-    if (!session) {
-      return NextResponse.json({ error: "Não autorizado" }, { status: 401 });
-    }
+    const auth = await requireAuth(request);
+    if (auth instanceof NextResponse) return auth;
+    const { userId } = auth;
 
     const investments = await sql`
       SELECT i.*, i.balance::float as balance,

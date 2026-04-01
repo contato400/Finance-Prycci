@@ -5,6 +5,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
 import { CreditCardVisual } from "@/components/cartoes/credit-card-visual";
 import { formatCurrency, formatDate, calcPercentage } from "@/lib/utils";
+import { apiFetch } from "@/lib/api-client";
 import { useDateRange } from "@/contexts/date-range-context";
 import {
   CreditCard,
@@ -58,7 +59,7 @@ export default function CartoesPage() {
     params.set("end", endStr);
     if (selectedCard) params.set("cardId", selectedCard);
     try {
-      const res = await fetch(`/api/cartoes?${params}`);
+      const res = await apiFetch(`/api/cartoes?${params}`);
       const json = await res.json();
       setData(json);
     } catch {

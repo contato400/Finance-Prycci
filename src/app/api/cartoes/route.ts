@@ -1,6 +1,5 @@
 import { NextResponse } from "next/server";
-import { getServerSession } from "next-auth";
-import { authOptions } from "@/lib/auth";
+import { requireAuth } from "@/lib/api-auth";
 import { translateCategory } from "@/lib/categories";
 import { translateInstitution } from "@/lib/institutions";
 import sql from "@/lib/db";
@@ -16,10 +15,9 @@ function num(v: unknown): number {
 // Retorna cartões de crédito
 export async function GET(request: Request) {
   try {
-    const session = await getServerSession(authOptions);
-    if (!session) {
-      return NextResponse.json({ error: "Não autorizado" }, { status: 401 });
-    }
+    const auth = await requireAuth(request);
+    if (auth instanceof NextResponse) return auth;
+    const { userId } = auth;
 
     const { searchParams } = new URL(request.url);
     const cardId = searchParams.get("cardId");
