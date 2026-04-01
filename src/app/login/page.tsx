@@ -27,9 +27,14 @@ export default function LoginPage() {
     });
 
     if (authError) {
-      setError(authError.message === "Invalid login credentials"
-        ? "Email ou senha incorretos"
-        : authError.message);
+      const msg = authError.message;
+      if (msg.includes("Failed to fetch") || msg.includes("fetch")) {
+        setError("Erro de conexão com o servidor de autenticação.");
+      } else if (msg === "Invalid login credentials") {
+        setError("Email ou senha incorretos");
+      } else {
+        setError(msg);
+      }
       setLoading(false);
     } else {
       router.push("/dashboard");

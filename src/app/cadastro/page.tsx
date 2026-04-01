@@ -38,7 +38,14 @@ export default function CadastroPage() {
     });
 
     if (authError) {
-      setError(authError.message);
+      const msg = authError.message;
+      if (msg.includes("Failed to fetch") || msg.includes("fetch")) {
+        setError("Erro de conexão. Verifique se as variáveis NEXT_PUBLIC_SUPABASE_URL e NEXT_PUBLIC_SUPABASE_ANON_KEY estão configuradas.");
+      } else if (msg.includes("already registered")) {
+        setError("Este email já está cadastrado. Tente fazer login.");
+      } else {
+        setError(msg);
+      }
       setLoading(false);
     } else {
       setSuccess(true);
