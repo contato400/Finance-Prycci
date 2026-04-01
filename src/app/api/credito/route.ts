@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { requireAuth } from "@/lib/api-auth";
-import { translateCategory } from "@/lib/categories";
+import { translateInstitution } from "@/lib/institutions";
 import sql from "@/lib/db";
 
 export const dynamic = "force-dynamic";
@@ -15,135 +15,144 @@ export async function GET(request: Request) {
   try {
     const auth = await requireAuth(request);
     if (auth instanceof NextResponse) return auth;
+    const { userId } = auth;
 
-    const { searchParams } = new URL(request.url);
-    const now = new Date();
-    const start = searchParams.get("start") ?? new Date(now.getFullYear(), now.getMonth(), 1).toISOString().split("T")[0];
-    const end = searchParams.get("end") ?? new Date(now.getFullYear(), now.getMonth() + 1, 0).toISOString().split("T")[0];
+    // === SEÇÃO 1: Score FinanceOS calculado ===
+    // Renda média mensal últimos 3 meses
+    const avgIncomeRow = await sql`
+      SELECT AVG(total)::float AS avg_income FROM (
+        SELECT DATE_TRUNC('month', date) AS mes, SUM(amount) AS total
+        FROM transactions WHERE user_id = ${userId} AND amount > 0
+        AND date >= NOW() - INTERVAL '3 months'
+        GROUP BY mes
+      ) t`;
+    const avgIncome = num(avgIncomeRow[0]?.avg_income);
 
-    // Cartões de crédito — direto da tabela accounts (credit_cards pode estar vazia)
+    // Gastos médios mensais últimos 3 meses
+    const avgExpenseRow = await sql`
+      SELECT AVG(total)::float AS avg_expense FROM (
+        SELECT DATE_TRUNC('month', date) AS mes, SUM(ABS(amount)) AS total
+        FROM transactions WHERE user_id = ${userId} AND amount < 0
+        AND date >= NOW() - INTERVAL '3 months'
+        GROUP BY mes
+      ) t`;
+    const avgExpense = num(avgExpenseRow[0]?.avg_expense);
+
+    // Crédito: utilização
+    const creditRow = await sql`
+      SELECT COALESCE(SUM(ABS(balance)), 0)::float AS used,
+             COALESCE(SUM(COALESCE(credit_limit, 0)), 0)::float AS lim
+      FROM accounts WHERE user_id = ${userId} AND type IN ('CREDIT', 'CREDIT_CARD')`;
+    const creditUsed = num(creditRow[0]?.used);
+    const creditLimit = num(creditRow[0]?.lim);
+
+    // Regularidade: meses com pagamento de fatura/boleto nos últimos 3
+    const regularityRow = await sql`
+      SELECT COUNT(DISTINCT DATE_TRUNC('month', date))::int AS months_paid
+      FROM transactions WHERE user_id = ${userId} AND amount < 0
+      AND (description ILIKE '%fatura%' OR description ILIKE '%boleto%' OR description ILIKE '%pagamento%')
+      AND date >= NOW() - INTERVAL '3 months'`;
+    const monthsPaid = num(regularityRow[0]?.months_paid);
+
+    // Diversificação
+    const [invRow, bankCountRow, balanceRow] = await Promise.all([
+      sql`SELECT COALESCE(SUM(balance), 0)::float AS total FROM investments WHERE user_id = ${userId}`,
+      sql`SELECT COUNT(DISTINCT institution_name)::int AS total FROM pluggy_items WHERE user_id = ${userId}`,
+      sql`SELECT COALESCE(SUM(balance), 0)::float AS total FROM accounts WHERE user_id = ${userId} AND type NOT IN ('CREDIT', 'CREDIT_CARD')`,
+    ]);
+    const totalInvestments = num(invRow[0]?.total);
+    const bankCount = num(bankCountRow[0]?.total);
+    const totalBalance = num(balanceRow[0]?.total);
+
+    // Calcular pontos
+    const incomeScore = avgIncome > 5000 ? 200 : avgIncome > 3000 ? 150 : avgIncome > 1500 ? 100 : 50;
+    const ratio = avgIncome > 0 ? avgExpense / avgIncome : 1;
+    const commitScore = ratio < 0.3 ? 200 : ratio < 0.5 ? 150 : ratio < 0.7 ? 100 : 50;
+    const creditRatio = creditLimit > 0 ? creditUsed / creditLimit : 0;
+    const creditScore = creditLimit === 0 ? 100 : creditRatio < 0.3 ? 200 : creditRatio < 0.6 ? 150 : creditRatio < 0.9 ? 100 : 50;
+    const regularityScore = monthsPaid >= 3 ? 200 : monthsPaid === 2 ? 130 : monthsPaid === 1 ? 70 : 0;
+    let diversScore = 0;
+    if (totalInvestments > 1000) diversScore += 100;
+    if (bankCount > 1) diversScore += 50;
+    if (avgExpense > 0 && totalBalance > avgExpense) diversScore += 50;
+
+    const totalScore = Math.min(1000, incomeScore + commitScore + creditScore + regularityScore + diversScore);
+
+    // Salvar score calculado
+    const today = new Date().toISOString().split("T")[0];
+    await sql`
+      INSERT INTO credit_score (user_id, score, source, recorded_at, updated_at)
+      VALUES (${userId}, ${totalScore}, 'FinanceOS', ${today}, NOW())
+      ON CONFLICT ON CONSTRAINT credit_score_pkey DO NOTHING`;
+
+    const scoreBreakdown = {
+      total: totalScore,
+      income: { score: incomeScore, avgIncome },
+      commitment: { score: commitScore, ratio: Math.round(ratio * 100) },
+      creditUsage: { score: creditScore, ratio: Math.round(creditRatio * 100) },
+      regularity: { score: regularityScore, monthsPaid },
+      diversification: { score: diversScore, investments: totalInvestments, banks: bankCount, balance: totalBalance },
+    };
+
+    // === SEÇÃO 2: Capacidade de Empréstimo ===
+    const disponivel = Math.max(avgIncome - avgExpense, 0);
+    const parcelaMax = disponivel * 0.30;
+    const loanCapacity = {
+      avgIncome, avgExpense, disponivel, parcelaMax,
+      credito12x: parcelaMax * 12,
+      credito24x: parcelaMax * 24,
+      credito36x: parcelaMax * 36,
+    };
+
+    // === SEÇÃO 4: Cartões de crédito por banco ===
     const creditAccounts = await sql`
       SELECT a.id, a.name, a.type,
              a.balance::float AS balance,
              COALESCE(a.credit_limit, 0)::float AS credit_limit,
-             p.institution_name AS bank_name
+             p.institution_name
       FROM accounts a
-      LEFT JOIN pluggy_items p ON a.item_id = p.id
-      WHERE a.type IN ('CREDIT', 'CREDIT_CARD')
-      ORDER BY ABS(a.balance) DESC
-    `;
+      JOIN pluggy_items p ON a.item_id = p.id
+      WHERE a.user_id = ${userId}
+        AND a.type IN ('CREDIT', 'CREDIT_CARD')
+        AND COALESCE(a.credit_limit, 0) > 0
+      ORDER BY a.credit_limit DESC`;
 
-    // Métricas dos 4 cards
-    const totalLimit = creditAccounts.reduce((s, c) => s + num(c.credit_limit), 0);
-    const totalUsed = creditAccounts.reduce((s, c) => s + Math.abs(num(c.balance)), 0);
-    const totalAvailable = Math.max(totalLimit - totalUsed, 0);
-    const creditCompromised = totalLimit > 0 ? Math.round((totalUsed / totalLimit) * 100) : 0;
+    const cardsByBank = creditAccounts.map((c) => ({
+      name: c.name,
+      institution: translateInstitution(c.institution_name),
+      limit: num(c.credit_limit),
+      used: Math.abs(num(c.balance)),
+      available: Math.max(num(c.credit_limit) - Math.abs(num(c.balance)), 0),
+    }));
 
-    // Limites por banco
-    const limitsByBank: Array<{ institution: string; limit: number; used: number; available: number }> = [];
-    const bankMap = new Map<string, { limit: number; used: number; available: number }>();
-    for (const c of creditAccounts) {
-      const inst = c.bank_name || "Desconhecido";
-      const used = Math.abs(num(c.balance));
-      const limit = num(c.credit_limit);
-      const e = bankMap.get(inst) || { limit: 0, used: 0, available: 0 };
-      e.limit += limit;
-      e.used += used;
-      e.available += Math.max(limit - used, 0);
-      bankMap.set(inst, e);
-    }
-    bankMap.forEach((val, institution) => { limitsByBank.push({ institution, ...val }); });
+    const totalCreditLimit = cardsByBank.reduce((s, c) => s + c.limit, 0);
+    const totalCreditUsed = cardsByBank.reduce((s, c) => s + c.used, 0);
 
-    // Queries do período — todas em paralelo, usando amount < 0 (não t.type = 'DEBIT')
-    const creditAccountIds = creditAccounts.map((c) => c.id);
-    let periodSpent = 0, periodTxCount = 0;
-    let biggestTransaction: { description: string; amount: number; date: string } | null = null;
-    let usageChart: Array<{ date: string; spent: number; accumulated: number; usagePercent: number }> = [];
-    let topCategories: Array<{ category: string; total: number; count: number; percent: number }> = [];
-
-    if (creditAccountIds.length > 0) {
-      const [periodRow, biggestRow, dailyRows, catRows] = await Promise.all([
-        sql`SELECT COALESCE(SUM(ABS(amount)), 0)::float AS total_spent,
-                   COUNT(*)::int AS tx_count
-            FROM transactions
-            WHERE account_id = ANY(${creditAccountIds}::uuid[])
-              AND amount < 0
-              AND date >= ${start} AND date <= ${end}`,
-        sql`SELECT description, ABS(amount)::float AS amount, date::text AS date
-            FROM transactions
-            WHERE account_id = ANY(${creditAccountIds}::uuid[])
-              AND amount < 0
-              AND date >= ${start} AND date <= ${end}
-            ORDER BY ABS(amount) DESC LIMIT 1`,
-        sql`SELECT date::text AS date, SUM(ABS(amount))::float AS daily_spent
-            FROM transactions
-            WHERE account_id = ANY(${creditAccountIds}::uuid[])
-              AND amount < 0
-              AND date >= ${start} AND date <= ${end}
-            GROUP BY date ORDER BY date`,
-        sql`SELECT COALESCE(category, 'Sem categoria') AS category,
-                   SUM(ABS(amount))::float AS total,
-                   COUNT(*)::int AS count
-            FROM transactions
-            WHERE account_id = ANY(${creditAccountIds}::uuid[])
-              AND amount < 0
-              AND date >= ${start} AND date <= ${end}
-            GROUP BY COALESCE(category, 'Sem categoria')
-            ORDER BY total DESC LIMIT 5`,
-      ]);
-
-      periodSpent = num(periodRow[0]?.total_spent);
-      periodTxCount = num(periodRow[0]?.tx_count);
-      biggestTransaction = biggestRow[0] ? { description: biggestRow[0].description, amount: num(biggestRow[0].amount), date: biggestRow[0].date } : null;
-
-      let running = 0;
-      usageChart = dailyRows.map((d) => {
-        running += num(d.daily_spent);
-        return { date: d.date, spent: num(d.daily_spent), accumulated: running, usagePercent: totalLimit > 0 ? Math.round((running / totalLimit) * 100) : 0 };
-      });
-
-      topCategories = catRows.map((c) => ({
-        category: translateCategory(c.category),
-        total: num(c.total),
-        count: num(c.count),
-        percent: periodSpent > 0 ? Math.round((num(c.total) / periodSpent) * 100) : 0,
-      }));
-    }
-
-    const avgUsage = totalLimit > 0 ? Math.round((periodSpent / totalLimit) * 100) : 0;
-
-    // Empréstimos, score, CPF — queries simples
-    const [loans, scoreRows, allScores, cpfConsultations] = await Promise.all([
-      sql`SELECT *, COALESCE(outstanding_balance, 0)::float AS outstanding_balance FROM loans ORDER BY updated_at DESC`,
-      sql`SELECT * FROM credit_score ORDER BY updated_at DESC LIMIT 1`,
-      sql`SELECT score, source, recorded_at::text AS recorded_at, updated_at FROM credit_score WHERE recorded_at >= ${start} AND recorded_at <= ${end} ORDER BY recorded_at ASC`,
-      sql`SELECT id, consulted_at::text AS consulted_at, institution, type FROM cpf_consultations WHERE consulted_at >= ${start} AND consulted_at <= ${end} ORDER BY consulted_at DESC`,
+    // === SEÇÃO 5: Consultas CPF ===
+    const [cpfConsultations, recentCpfCount] = await Promise.all([
+      sql`SELECT id, consulted_at::text AS consulted_at, institution, type
+          FROM cpf_consultations WHERE user_id = ${userId}
+          ORDER BY consulted_at DESC LIMIT 20`,
+      sql`SELECT COUNT(*)::int AS count FROM cpf_consultations
+          WHERE user_id = ${userId} AND consulted_at >= NOW() - INTERVAL '30 days'`,
     ]);
 
+    // === SEÇÃO extra: Empréstimos ativos ===
+    const loans = await sql`
+      SELECT *, COALESCE(outstanding_balance, 0)::float AS outstanding_balance
+      FROM loans WHERE user_id = ${userId} ORDER BY updated_at DESC`;
     const totalLoanDebt = loans.reduce((s, l) => s + num(l.outstanding_balance), 0);
 
-    const thirtyDaysAgo = new Date(Date.now() - 30 * 86400000).toISOString().split("T")[0];
-    const recentCpf = await sql`SELECT COUNT(*)::int AS count FROM cpf_consultations WHERE consulted_at >= ${thirtyDaysAgo}`;
-
     return NextResponse.json({
-      totalLimit, totalUsed, totalAvailable, creditCompromised,
-      limitsByBank,
-      loans: loans.map((l) => ({ ...l, institution_name: l.institution_name || "Desconhecido" })),
+      scoreBreakdown,
+      loanCapacity,
+      cardsByBank,
+      totalCreditLimit, totalCreditUsed,
+      totalCreditAvailable: Math.max(totalCreditLimit - totalCreditUsed, 0),
+      loans: loans.map((l) => ({ ...l, institution_name: translateInstitution(l.institution_name) })),
       totalLoanDebt,
-      score: scoreRows[0] || null,
-      periodSpent, periodTxCount, avgUsage,
-      biggestTransaction,
-      usageChart,
-      topCategories,
-      scoreHistory: allScores,
       cpfConsultations: cpfConsultations || [],
-      hasRecentCpfConsult: num(recentCpf[0]?.count) > 0,
-      // Debug
-      _debug: {
-        creditAccountsFound: creditAccounts.length,
-        creditAccountTypes: creditAccounts.map((c) => c.type),
-        creditAccountIds: creditAccountIds,
-      },
+      recentCpfCount: num(recentCpfCount[0]?.count),
     });
   } catch (error) {
     const message = error instanceof Error ? error.message : "Erro ao buscar crédito";

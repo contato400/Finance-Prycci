@@ -9,6 +9,7 @@ export async function POST(request: Request) {
   try {
     const auth = await requireAuth(request);
     if (auth instanceof NextResponse) return auth;
+    const { userId } = auth;
 
     const { institution, type, consulted_at } = (await request.json()) as {
       institution: string; type?: string; consulted_at?: string;
@@ -19,8 +20,8 @@ export async function POST(request: Request) {
     }
 
     const [row] = await sql`
-      INSERT INTO cpf_consultations (institution, type, consulted_at)
-      VALUES (${institution}, ${type || "Consulta de crédito"}, ${consulted_at || new Date().toISOString().split("T")[0]})
+      INSERT INTO cpf_consultations (user_id, institution, type, consulted_at)
+      VALUES (${userId}, ${institution}, ${type || "Consulta de crédito"}, ${consulted_at || new Date().toISOString().split("T")[0]})
       RETURNING *
     `;
 

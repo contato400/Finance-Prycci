@@ -4,11 +4,12 @@ import sql from "@/lib/db";
 
 export const dynamic = "force-dynamic";
 
-// Salva score de crédito manualmente
+// Salva score de crédito
 export async function POST(request: Request) {
   try {
     const auth = await requireAuth(request);
     if (auth instanceof NextResponse) return auth;
+    const { userId } = auth;
 
     const { score, source } = (await request.json()) as { score: number; source?: string };
 
@@ -18,8 +19,8 @@ export async function POST(request: Request) {
 
     const today = new Date().toISOString().split("T")[0];
     const [row] = await sql`
-      INSERT INTO credit_score (score, source, recorded_at, updated_at)
-      VALUES (${score}, ${source || "Serasa"}, ${today}, now())
+      INSERT INTO credit_score (user_id, score, source, recorded_at, updated_at)
+      VALUES (${userId}, ${score}, ${source || "FinanceOS"}, ${today}, now())
       RETURNING *
     `;
 
