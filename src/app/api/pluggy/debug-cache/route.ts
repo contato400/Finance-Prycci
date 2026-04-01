@@ -2,6 +2,8 @@ import { NextResponse } from "next/server";
 import { requireAuth } from "@/lib/api-auth";
 import sql from "@/lib/db";
 
+export const dynamic = "force-dynamic";
+
 // Debug: mostra estado do cache e das tabelas
 export async function GET(request: Request) {
   try {

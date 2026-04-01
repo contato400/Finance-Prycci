@@ -4,6 +4,8 @@ import { createPluggyClient } from "@/lib/pluggy/client";
 import sql from "@/lib/db";
 import type { Transaction as PluggyTransaction } from "pluggy-sdk";
 
+export const dynamic = "force-dynamic";
+
 type LogFn = (msg: string) => void;
 type Pluggy = ReturnType<typeof createPluggyClient>;
 

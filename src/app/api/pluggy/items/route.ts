@@ -3,6 +3,8 @@ import { requireAuth } from "@/lib/api-auth";
 import { createPluggyClient } from "@/lib/pluggy/client";
 import sql from "@/lib/db";
 
+export const dynamic = "force-dynamic";
+
 // Salva um novo item do Pluggy no banco
 export async function POST(request: Request) {
   try {

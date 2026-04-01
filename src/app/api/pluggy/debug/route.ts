@@ -4,6 +4,8 @@ import sql from "@/lib/db";
 
 const PLUGGY_BASE_URL = "https://api.pluggy.ai";
 
+export const dynamic = "force-dynamic";
+
 // Endpoint de diagnóstico — testa cada etapa separadamente
 export async function GET(request: Request) {
   const checks: Record<string, unknown> = {};

@@ -2,6 +2,8 @@ import { NextResponse } from "next/server";
 import { requireAuth } from "@/lib/api-auth";
 import sql from "@/lib/db";
 
+export const dynamic = "force-dynamic";
+
 // Salva score de crédito manualmente
 export async function POST(request: Request) {
   try {

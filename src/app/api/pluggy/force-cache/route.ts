@@ -2,6 +2,8 @@ import { NextResponse } from "next/server";
 import { requireAuth } from "@/lib/api-auth";
 import sql from "@/lib/db";
 
+export const dynamic = "force-dynamic";
+
 function num(v: unknown): number {
   if (v === null || v === undefined) return 0;
   const n = Number(v);

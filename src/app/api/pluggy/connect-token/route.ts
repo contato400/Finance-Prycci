@@ -2,6 +2,8 @@ import { NextResponse } from "next/server";
 import { requireAuth } from "@/lib/api-auth";
 import { createPluggyClient } from "@/lib/pluggy/client";
 
+export const dynamic = "force-dynamic";
+
 // Gera um connectToken para o Pluggy Connect Widget
 export async function POST(request: Request) {
   try {
