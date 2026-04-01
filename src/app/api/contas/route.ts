@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import { translateCategory } from "@/lib/categories";
+import { translateInstitution } from "@/lib/institutions";
 import sql from "@/lib/db";
 
 export const dynamic = "force-dynamic";
@@ -40,7 +41,7 @@ export async function GET(request: Request) {
 
     const enriched = accounts.map((a) => ({
       ...a,
-      pluggy_items: { institution_name: a.institution_name || "Desconhecido" },
+      pluggy_items: { institution_name: translateInstitution(a.institution_name) },
     }));
 
     // Transações paginadas

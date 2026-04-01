@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import { translateCategory } from "@/lib/categories";
+import { translateInstitution } from "@/lib/institutions";
 import sql from "@/lib/db";
 
 export const dynamic = "force-dynamic";
@@ -12,7 +13,7 @@ function num(v: unknown): number {
   return isNaN(n) ? 0 : n;
 }
 
-// Retorna cartões de crédito — busca de accounts type=CREDIT
+// Retorna cartões de crédito
 export async function GET(request: Request) {
   try {
     const session = await getServerSession(authOptions);
@@ -26,25 +27,13 @@ export async function GET(request: Request) {
     const start = searchParams.get("start") ?? new Date(now.getFullYear(), now.getMonth(), 1).toISOString().split("T")[0];
     const end = searchParams.get("end") ?? new Date(now.getFullYear(), now.getMonth() + 1, 0).toISOString().split("T")[0];
 
+    // Sem CASE hardcoded — usa institution_name direto da Pluggy
     const cards = await sql`
       SELECT a.id, a.pluggy_account_id, a.name, a.type,
              a.balance::float as balance,
              COALESCE(a.credit_limit, 0)::float as credit_limit,
              a.updated_at,
-             p.institution_name AS raw_institution,
-             CASE
-               WHEN p.institution_name != 'MeuPluggy' THEN p.institution_name
-               WHEN a.name ILIKE '%diogo%' OR a.name ILIKE '%tavares%' THEN 'Nubank'
-               WHEN a.name ILIKE '%gold%' OR a.name ILIKE '%nu pagamento%' OR a.name ILIKE '%nubank%' THEN 'Nubank'
-               WHEN a.name ILIKE '%company%' THEN 'Nubank Empresas'
-               WHEN a.name ILIKE '%sim visa%' OR a.name ILIKE '%caixa%' OR a.name ILIKE '%cef%' THEN 'Caixa Econômica Federal'
-               WHEN a.name ILIKE '%inter%' THEN 'Banco Inter'
-               WHEN a.name ILIKE '%bradesco%' THEN 'Bradesco'
-               WHEN a.name ILIKE '%itau%' OR a.name ILIKE '%itaú%' THEN 'Itaú'
-               WHEN a.name ILIKE '%santander%' THEN 'Santander'
-               WHEN a.name ILIKE '%c6%' THEN 'C6 Bank'
-               ELSE p.institution_name
-             END AS banco
+             p.institution_name
       FROM accounts a
       JOIN pluggy_items p ON a.item_id = p.id
       WHERE a.type IN ('CREDIT', 'CREDIT_CARD')
@@ -55,13 +44,10 @@ export async function GET(request: Request) {
       const creditLimit = num(c.credit_limit);
       const availableLimit = Math.max(creditLimit - usedBalance, 0);
       const last4 = c.pluggy_account_id?.slice(-4) || "****";
+      const banco = translateInstitution(c.institution_name);
 
-      // Limpa nome do cartão: remove prefixos e nomes institucionais verbosos
-      const cardName = (c.name || "")
-        .replace(/^MeuPluggy\s*/i, "")
-        .replace(/Nu Pagamentos S\.?A\.?\s*-?\s*Instituição de Pagamento\s*/i, "Nubank ")
-        .replace(/Nu Pagamentos S\.?A\.?\s*/i, "Nubank ")
-        .trim() || c.banco;
+      // Limpa nome do cartão
+      const cardName = (c.name || "").trim() || banco;
 
       return {
         id: c.id,
@@ -72,7 +58,7 @@ export async function GET(request: Request) {
         credit_limit: creditLimit,
         available_limit: availableLimit,
         updated_at: c.updated_at,
-        accounts: { pluggy_items: { institution_name: c.banco || "Desconhecido" } },
+        accounts: { pluggy_items: { institution_name: banco } },
       };
     });
 

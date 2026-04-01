@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import { translateCategory } from "@/lib/categories";
+import { translateInstitution } from "@/lib/institutions";
 import sql from "@/lib/db";
 
 export const dynamic = "force-dynamic";
@@ -41,7 +42,7 @@ export async function GET(request: Request) {
     const totalCreditUsed = num(c.totalCreditUsed ?? c.total_credit_used);
     const totalCreditLimit = num(c.totalCreditLimit ?? c.total_limit);
 
-    // Investimentos: query direto da tabela para evitar cache desatualizado
+    // Investimentos: query direto da tabela
     const invRow = await sql`
       SELECT COALESCE(SUM(balance), 0)::float AS total,
              COUNT(*)::int AS count
@@ -50,20 +51,14 @@ export async function GET(request: Request) {
     const investmentCount = num(invRow[0]?.count);
     const netBalance = totalBalance + totalInvested - totalCreditUsed;
 
-    // 2. Bancos conectados — sem duplicatas, apenas banco + status
+    // 2. Bancos conectados — usa institution_name direto, sem CASE hardcoded
     const banks = await sql`
-      SELECT DISTINCT
-        CASE WHEN pi.institution_name = 'MeuPluggy' THEN
-          CASE
-            WHEN EXISTS(SELECT 1 FROM accounts a WHERE a.item_id = pi.id AND a.name ILIKE '%nubank%') THEN 'Nubank'
-            WHEN EXISTS(SELECT 1 FROM accounts a WHERE a.item_id = pi.id AND a.name ILIKE '%inter%') THEN 'Banco Inter'
-            WHEN EXISTS(SELECT 1 FROM accounts a WHERE a.item_id = pi.id AND a.name ILIKE '%caixa%') THEN 'Caixa Econômica Federal'
-            ELSE pi.institution_name
-          END
-        ELSE pi.institution_name END AS banco,
-        pi.status
-      FROM pluggy_items pi
-      GROUP BY banco, pi.status
+      SELECT
+        institution_name,
+        bool_or(status = 'UPDATED') AS ativo
+      FROM pluggy_items
+      GROUP BY institution_name
+      ORDER BY institution_name
     `;
 
     const connectedBanks = banks.length;
@@ -77,7 +72,7 @@ export async function GET(request: Request) {
     const periodIncome = num(incomeRow[0]?.total);
     const periodExpenses = num(expensesRow[0]?.total);
 
-    // 4. Top 10 transações individuais do período
+    // 4. Top 10 transações — usa institution_name direto
     const topTxRows = await sql`
       SELECT
         t.id,
@@ -86,20 +81,7 @@ export async function GET(request: Request) {
         t.date::text AS date,
         COALESCE(t.category, 'Sem categoria') AS category,
         a.type AS account_type,
-        CASE
-          WHEN pi.institution_name = 'MeuPluggy' THEN
-            CASE
-              WHEN a.name ILIKE '%nubank%' OR a.name ILIKE '%nu pagamento%' THEN 'Nubank'
-              WHEN a.name ILIKE '%inter%' THEN 'Banco Inter'
-              WHEN a.name ILIKE '%caixa%' THEN 'Caixa Econômica Federal'
-              WHEN a.name ILIKE '%bradesco%' THEN 'Bradesco'
-              WHEN a.name ILIKE '%itau%' OR a.name ILIKE '%itaú%' THEN 'Itaú'
-              WHEN a.name ILIKE '%santander%' THEN 'Santander'
-              WHEN a.name ILIKE '%c6%' THEN 'C6 Bank'
-              ELSE a.name
-            END
-          ELSE pi.institution_name
-        END AS banco
+        pi.institution_name AS banco
       FROM transactions t
       JOIN accounts a ON t.account_id = a.id
       JOIN pluggy_items pi ON a.item_id = pi.id
@@ -116,14 +98,14 @@ export async function GET(request: Request) {
       date: tx.date,
       category: translateCategory(tx.category),
       accountType: tx.account_type,
-      banco: tx.banco,
+      banco: translateInstitution(tx.banco),
     }));
 
     return NextResponse.json({
       totalBalance, totalCreditUsed, totalCreditLimit, totalInvested, investmentCount, netBalance,
       banks: banks.map((b) => ({
-        name: b.banco,
-        status: b.status,
+        name: translateInstitution(b.institution_name),
+        status: b.ativo ? "UPDATED" : "PENDING",
       })),
       connectedBanks,
       periodIncome,
