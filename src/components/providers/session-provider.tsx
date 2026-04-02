@@ -2,7 +2,6 @@
 
 import { createContext, useContext, useEffect, useState } from "react";
 import { createSupabaseBrowser } from "@/lib/supabase/browser";
-import { updateCachedToken } from "@/lib/api-client";
 import type { User, Session } from "@supabase/supabase-js";
 
 interface AuthContextType {
@@ -37,17 +36,14 @@ export function AuthSessionProvider({ children }: { children: React.ReactNode })
       setSession(s);
       setUser(s?.user ?? null);
       setLoading(false);
-      // Alimentar cache do apiFetch
-      updateCachedToken(s?.access_token ?? null, s?.expires_at);
     });
 
-    // Listen for auth changes (login, logout, token refresh)
+    // Listen for auth changes
     const { data: { subscription } } = supabase.auth.onAuthStateChange((_event: string, newSession: Session | null) => {
-      setSession(newSession);
-      setUser(newSession?.user ?? null);
+      const s = newSession;
+      setSession(s);
+      setUser(s?.user ?? null);
       setLoading(false);
-      // Atualizar cache do apiFetch imediatamente
-      updateCachedToken(newSession?.access_token ?? null, newSession?.expires_at);
     });
 
     return () => subscription.unsubscribe();
@@ -55,7 +51,6 @@ export function AuthSessionProvider({ children }: { children: React.ReactNode })
 
   async function handleSignOut() {
     const supabase = createSupabaseBrowser();
-    updateCachedToken(null);
     await supabase.auth.signOut();
     window.location.href = "/login";
   }
