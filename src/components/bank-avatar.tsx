@@ -28,7 +28,7 @@ export function BankAvatar({ bankName, size = 32, className = "" }: BankAvatarPr
         alt={bankName}
         width={size}
         height={size}
-        className={`rounded-full bg-white object-contain ${className}`}
+        className={`rounded-full bg-white object-contain p-0.5 ${className}`}
         style={{ width: size, height: size }}
         onError={() => setImgError(true)}
       />

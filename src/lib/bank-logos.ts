@@ -1,6 +1,6 @@
-// Mapa de domínios para logos via Clearbit.
-// A lista serve APENAS para encontrar logos — cores e nomes
-// são 100% derivados do institution_name da Pluggy.
+// Mapa de domínios para logos de bancos.
+// Usa Google Favicons API (gratuita, confiável) como fonte primária.
+// Clearbit foi descontinuado e retorna 403.
 
 export const bankDomains: Record<string, string> = {
   // Ordem importa: mais específico primeiro
@@ -25,6 +25,7 @@ export const bankDomains: Record<string, string> = {
   'original': 'original.com.br',
   'safra': 'safra.com.br',
   'btg pactual': 'btgpactual.com',
+  'btg': 'btgpactual.com',
   'sicoob': 'sicoob.com.br',
   'sicredi': 'sicredi.com.br',
   'will bank': 'willbank.com.br',
@@ -44,7 +45,8 @@ export function getBankLogoUrl(bankName: string): string | null {
   const key = bankName.toLowerCase();
   for (const [name, domain] of Object.entries(bankDomains)) {
     if (key.includes(name)) {
-      return `https://logo.clearbit.com/${domain}`;
+      // Google Favicons API — gratuita, funciona sempre, retorna PNG
+      return `https://www.google.com/s2/favicons?domain=${domain}&sz=128`;
     }
   }
   return null;
