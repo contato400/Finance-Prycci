@@ -12,6 +12,19 @@ function num(v: unknown): number {
   return isNaN(n) ? 0 : n;
 }
 
+// Resolve MeuPluggy → nome real via account name
+function resolveBankName(institutionName: string, accountName?: string): string {
+  if (institutionName !== "MeuPluggy") return translateInstitution(institutionName);
+  const n = (accountName || "").toLowerCase();
+  if (n.includes("nubank") || n.includes("nu pagamento")) return "Nubank";
+  if (n.includes("inter")) return "Banco Inter";
+  if (n.includes("caixa") || n.includes("sim visa")) return "Caixa Econômica Federal";
+  if (n.includes("bradesco")) return "Bradesco";
+  if (n.includes("itau") || n.includes("itaú")) return "Itaú";
+  if (n.includes("santander")) return "Santander";
+  return translateInstitution(institutionName);
+}
+
 export async function GET(request: Request) {
   try {
     const auth = await requireAuth(request);
@@ -23,24 +36,20 @@ export async function GET(request: Request) {
     const start = searchParams.get("start") ?? new Date(now.getFullYear(), now.getMonth(), 1).toISOString().split("T")[0];
     const end = searchParams.get("end") ?? new Date(now.getFullYear(), now.getMonth() + 1, 0).toISOString().split("T")[0];
 
-    // Query TUDO direto das tabelas — sem depender do cache
     const [balRow, crRow, invRow, banksRows, incomeRow, expensesRow, topTxRows] = await Promise.all([
-      // Saldo em contas correntes
       sql`SELECT COALESCE(SUM(balance), 0)::float AS v FROM accounts WHERE user_id = ${userId} AND type NOT IN ('CREDIT','CREDIT_CARD')`,
-      // Crédito
       sql`SELECT COALESCE(SUM(ABS(balance)), 0)::float AS used, COALESCE(SUM(COALESCE(credit_limit, 0)), 0)::float AS lim FROM accounts WHERE user_id = ${userId} AND type IN ('CREDIT','CREDIT_CARD')`,
-      // Investimentos
       sql`SELECT COALESCE(SUM(balance), 0)::float AS total, COUNT(*)::int AS count FROM investments WHERE user_id = ${userId}`,
-      // Bancos conectados
-      sql`SELECT institution_name, bool_or(status = 'UPDATED') AS ativo FROM pluggy_items WHERE user_id = ${userId} GROUP BY institution_name ORDER BY institution_name`,
-      // Receitas do período
+      // Bancos: pega institution_name + primeiro account name para resolver MeuPluggy
+      sql`SELECT pi.institution_name, pi.status,
+            (SELECT a.name FROM accounts a WHERE a.item_id = pi.id LIMIT 1) AS first_account_name
+          FROM pluggy_items pi WHERE pi.user_id = ${userId}`,
       sql`SELECT COALESCE(SUM(amount), 0)::float AS total FROM transactions WHERE user_id = ${userId} AND amount > 0 AND date >= ${start} AND date <= ${end}`,
-      // Gastos do período
       sql`SELECT COALESCE(SUM(ABS(amount)), 0)::float AS total FROM transactions WHERE user_id = ${userId} AND amount < 0 AND date >= ${start} AND date <= ${end}`,
-      // Top 10 transações
+      // Transações: pega account name para resolver MeuPluggy
       sql`SELECT t.id, t.description, ABS(t.amount)::float AS valor, t.date::text AS date,
             COALESCE(t.category, 'Sem categoria') AS category, a.type AS account_type,
-            pi.institution_name AS banco
+            pi.institution_name AS banco, a.name AS account_name
           FROM transactions t
           JOIN accounts a ON t.account_id = a.id
           JOIN pluggy_items pi ON a.item_id = pi.id
@@ -57,19 +66,27 @@ export async function GET(request: Request) {
     const periodIncome = num(incomeRow[0]?.total);
     const periodExpenses = num(expensesRow[0]?.total);
 
+    // Deduplica bancos por nome resolvido
+    const bankMap = new Map<string, boolean>();
+    for (const b of banksRows) {
+      const name = resolveBankName(b.institution_name, b.first_account_name);
+      const wasActive = bankMap.get(name) || false;
+      bankMap.set(name, wasActive || b.status === "UPDATED");
+    }
+    const banks = Array.from(bankMap.entries()).map(([name, ativo]) => ({
+      name,
+      status: ativo ? "UPDATED" : "PENDING",
+    }));
+
     const topTransactions = topTxRows.map((tx) => ({
       id: tx.id, description: tx.description, valor: num(tx.valor), date: tx.date,
       category: translateCategory(tx.category), accountType: tx.account_type,
-      banco: translateInstitution(tx.banco),
+      banco: resolveBankName(tx.banco, tx.account_name),
     }));
 
     return NextResponse.json({
       totalBalance, totalCreditUsed, totalCreditLimit, totalInvested, investmentCount, netBalance,
-      banks: banksRows.map((b) => ({
-        name: translateInstitution(b.institution_name),
-        status: b.ativo ? "UPDATED" : "PENDING",
-      })),
-      connectedBanks: banksRows.length,
+      banks, connectedBanks: banks.length,
       periodIncome, periodExpenses,
       periodNet: periodIncome - periodExpenses,
       topTransactions,
