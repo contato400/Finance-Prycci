@@ -118,9 +118,19 @@ export default function DashboardPage() {
 
       {data?.needsSync && (
         <Card className="border-emerald-800 bg-emerald-950/20">
-          <CardContent className="flex items-center gap-3 p-5">
-            <Wallet className="h-5 w-5 text-emerald-400" />
-            <p className="text-sm text-emerald-300">{data.message || "Clique em Sincronizar."}</p>
+          <CardContent className="flex flex-col items-center gap-4 py-8 text-center">
+            <Building2 className="h-10 w-10 text-emerald-400" />
+            <div>
+              <p className="text-base font-semibold text-white">Bem-vindo ao FinanceOS!</p>
+              <p className="mt-1 text-sm text-emerald-300">{data.message || "Conecte seu banco para começar."}</p>
+            </div>
+            <div className="flex items-center gap-4 text-xs text-slate-400">
+              <span>1. Clique em <strong className="text-white">Adicionar Banco</strong></span>
+              <span>→</span>
+              <span>2. Conecte sua conta</span>
+              <span>→</span>
+              <span>3. Clique em <strong className="text-white">Sincronizar</strong></span>
+            </div>
           </CardContent>
         </Card>
       )}

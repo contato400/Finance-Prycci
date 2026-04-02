@@ -20,9 +20,6 @@ export default function LoginPage() {
     setLoading(true);
     setError("");
 
-    console.log("SUPABASE_URL:", process.env.NEXT_PUBLIC_SUPABASE_URL);
-    console.log("KEY_PREFIX:", process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY?.substring(0, 15));
-
     const supabase = createSupabaseBrowser();
     const { error: authError } = await supabase.auth.signInWithPassword({
       email,

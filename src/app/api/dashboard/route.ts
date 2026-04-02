@@ -78,6 +78,9 @@ export async function GET(request: Request) {
       status: ativo ? "UPDATED" : "PENDING",
     }));
 
+    // Novo usuário sem bancos → orientar a adicionar
+    const needsSync = banks.length === 0;
+
     const topTransactions = topTxRows.map((tx) => ({
       id: tx.id, description: tx.description, valor: num(tx.valor), date: tx.date,
       category: translateCategory(tx.category), accountType: tx.account_type,
@@ -90,6 +93,7 @@ export async function GET(request: Request) {
       periodIncome, periodExpenses,
       periodNet: periodIncome - periodExpenses,
       topTransactions,
+      ...(needsSync ? { needsSync: true, message: "Conecte seu banco clicando em \"Adicionar Banco\" e depois em \"Sincronizar\"." } : {}),
     });
   } catch (error) {
     console.error("Dashboard error:", error instanceof Error ? error.message : error);
