@@ -4,82 +4,78 @@ import { createSupabaseBrowser } from "@/lib/supabase/browser";
 let _cachedToken: string | null = null;
 let _tokenExpiry = 0;
 
-// Wrapper de fetch que automaticamente inclui o token de autenticação
-export async function apiFetch(url: string, options?: RequestInit): Promise<Response> {
-  const now = Date.now();
+// Chamado pelo AuthSessionProvider quando a sessão muda
+export function updateCachedToken(token: string | null, expiresAt?: number) {
+  _cachedToken = token;
+  _tokenExpiry = expiresAt ? expiresAt * 1000 : 0;
+}
 
-  // Usar token cacheado se ainda válido (com margem de 60s)
-  if (_cachedToken && _tokenExpiry > now + 60000) {
-    const headers = new Headers(options?.headers);
-    headers.set("Authorization", `Bearer ${_cachedToken}`);
-    return fetch(url, { ...options, headers });
+// Aguarda o token ficar disponível (max 3s)
+async function waitForToken(): Promise<string | null> {
+  // Se já tem token cacheado e válido, retorna imediatamente
+  if (_cachedToken && _tokenExpiry > Date.now()) {
+    return _cachedToken;
   }
 
-  // Buscar sessão fresca
+  // Tentar getSession
   const supabase = createSupabaseBrowser();
-  let token: string | null = null;
-
-  // Tentar getSession primeiro
   const { data: { session } } = await supabase.auth.getSession();
   if (session?.access_token) {
-    token = session.access_token;
-    _tokenExpiry = (session.expires_at ?? 0) * 1000;
+    updateCachedToken(session.access_token, session.expires_at);
+    return session.access_token;
   }
 
-  // Se não conseguiu, tentar refreshSession
-  if (!token) {
-    const { data: refreshData } = await supabase.auth.refreshSession();
-    if (refreshData?.session?.access_token) {
-      token = refreshData.session.access_token;
-      _tokenExpiry = (refreshData.session.expires_at ?? 0) * 1000;
+  // Esperar o AuthSessionProvider alimentar o cache (até 3s)
+  for (let i = 0; i < 6; i++) {
+    await new Promise((r) => setTimeout(r, 500));
+    if (_cachedToken) return _cachedToken;
+
+    // Tentar getSession de novo a cada iteração
+    const { data: { session: retrySession } } = await supabase.auth.getSession();
+    if (retrySession?.access_token) {
+      updateCachedToken(retrySession.access_token, retrySession.expires_at);
+      return retrySession.access_token;
     }
   }
 
-  // Se ainda não conseguiu, tentar ler do cookie diretamente
-  if (!token) {
-    // @supabase/ssr armazena o token em cookies com prefixo sb-
-    const cookies = document.cookie.split(";");
-    for (const cookie of cookies) {
-      const [name, value] = cookie.trim().split("=");
-      if (name?.includes("auth-token") && value) {
-        try {
-          const parsed = JSON.parse(decodeURIComponent(value));
-          if (parsed?.access_token) {
-            token = parsed.access_token;
-            break;
-          }
-        } catch {
-          // Cookie pode estar em formato diferente
-          if (value.startsWith("ey")) {
-            token = decodeURIComponent(value);
-            break;
-          }
-        }
-      }
-    }
+  // Último recurso: refreshSession
+  const { data: refreshData } = await supabase.auth.refreshSession();
+  if (refreshData?.session?.access_token) {
+    updateCachedToken(refreshData.session.access_token, refreshData.session.expires_at);
+    return refreshData.session.access_token;
   }
 
-  if (token) {
-    _cachedToken = token;
-  } else {
-    console.warn("[apiFetch] Sem token para", url);
+  return null;
+}
+
+// Wrapper de fetch que automaticamente inclui o token de autenticação
+export async function apiFetch(url: string, options?: RequestInit): Promise<Response> {
+  const token = await waitForToken();
+
+  if (!token) {
+    console.warn("[apiFetch] Sem token para", url, "— redirecionando para login");
+    // Se não tem token após todas as tentativas, redirecionar para login
+    if (typeof window !== "undefined" && !window.location.pathname.startsWith("/login")) {
+      window.location.href = "/login";
+    }
+    return new Response(JSON.stringify({ error: "Sem sessão ativa" }), {
+      status: 401,
+      headers: { "Content-Type": "application/json" },
+    });
   }
 
   const headers = new Headers(options?.headers);
-  if (token) {
-    headers.set("Authorization", `Bearer ${token}`);
-  }
-
+  headers.set("Authorization", `Bearer ${token}`);
   const res = await fetch(url, { ...options, headers });
 
   // Se recebeu 401, limpar cache e tentar refresh uma vez
-  if (res.status === 401 && token) {
+  if (res.status === 401) {
     _cachedToken = null;
     _tokenExpiry = 0;
+    const supabase = createSupabaseBrowser();
     const { data: retryData } = await supabase.auth.refreshSession();
     if (retryData?.session?.access_token) {
-      _cachedToken = retryData.session.access_token;
-      _tokenExpiry = (retryData.session.expires_at ?? 0) * 1000;
+      updateCachedToken(retryData.session.access_token, retryData.session.expires_at);
       const retryHeaders = new Headers(options?.headers);
       retryHeaders.set("Authorization", `Bearer ${retryData.session.access_token}`);
       return fetch(url, { ...options, headers: retryHeaders });
@@ -87,10 +83,4 @@ export async function apiFetch(url: string, options?: RequestInit): Promise<Resp
   }
 
   return res;
-}
-
-// Chamado pelo AuthSessionProvider quando a sessão muda
-export function updateCachedToken(token: string | null, expiresAt?: number) {
-  _cachedToken = token;
-  _tokenExpiry = expiresAt ? expiresAt * 1000 : 0;
 }
