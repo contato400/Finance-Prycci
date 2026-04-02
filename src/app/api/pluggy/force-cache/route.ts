@@ -56,11 +56,11 @@ export async function POST(request: Request) {
       netBalance, connectedBanks, institutions: Array.from(instMap.values()),
     };
 
-    await sql`
-      INSERT INTO dashboard_cache (user_id, data, updated_at)
-      VALUES (${userId}, ${JSON.stringify(cacheData)}::jsonb, NOW())
-      ON CONFLICT (user_id) DO UPDATE SET data = EXCLUDED.data, updated_at = NOW()
-    `;
+    try {
+      await sql`INSERT INTO dashboard_cache (user_id, data, updated_at) VALUES (${userId}, ${JSON.stringify(cacheData)}::jsonb, NOW()) ON CONFLICT (user_id) DO UPDATE SET data = EXCLUDED.data, updated_at = NOW()`;
+    } catch {
+      await sql`INSERT INTO dashboard_cache (user_id, data) VALUES (${userId}, ${JSON.stringify(cacheData)}::jsonb) ON CONFLICT (user_id) DO UPDATE SET data = EXCLUDED.data`;
+    }
 
     return Response.json({ message: "Cache atualizado com sucesso", saved: cacheData });
   } catch (error) {

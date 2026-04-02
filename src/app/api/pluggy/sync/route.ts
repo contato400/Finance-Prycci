@@ -65,19 +65,20 @@ export async function POST(request: Request) {
         const item = await pluggy.fetchItem(dbItem.item_id);
         log(`  Status: ${item.status}, connector: ${item.connector.name}`);
 
-        // Usar nome real do conector. Se for "MeuPluggy" (sandbox), tentar inferir do nome das contas
+        // Usar nome real do conector. Se for "MeuPluggy" (sandbox), inferir de TODAS as contas
         let institutionName = item.connector.name;
         if (institutionName === "MeuPluggy") {
           const { results: accts } = await pluggy.fetchAccounts(dbItem.item_id);
-          const firstAccountName = accts[0]?.name?.toLowerCase() || "";
-          if (firstAccountName.includes("nubank") || firstAccountName.includes("nu pagamento")) institutionName = "Nubank";
-          else if (firstAccountName.includes("inter")) institutionName = "Banco Inter";
-          else if (firstAccountName.includes("caixa") || firstAccountName.includes("cef") || firstAccountName.includes("sim visa")) institutionName = "Caixa Econômica Federal";
-          else if (firstAccountName.includes("bradesco")) institutionName = "Bradesco";
-          else if (firstAccountName.includes("itau") || firstAccountName.includes("itaú")) institutionName = "Itaú";
-          else if (firstAccountName.includes("santander")) institutionName = "Santander";
-          else if (firstAccountName.includes("c6")) institutionName = "C6 Bank";
-          else institutionName = item.connector.name; // manter original
+          // Combinar todos os nomes de contas para buscar keywords
+          const allNames = accts.map((a) => a.name?.toLowerCase() || "").join(" ");
+          log(`  MeuPluggy — nomes das contas: ${allNames}`);
+          if (allNames.includes("nubank") || allNames.includes("nu pagamento")) institutionName = "Nubank";
+          else if (allNames.includes("inter")) institutionName = "Banco Inter";
+          else if (allNames.includes("caixa") || allNames.includes("cef") || allNames.includes("sim visa")) institutionName = "Caixa Econômica Federal";
+          else if (allNames.includes("bradesco")) institutionName = "Bradesco";
+          else if (allNames.includes("itau") || allNames.includes("itaú")) institutionName = "Itaú";
+          else if (allNames.includes("santander")) institutionName = "Santander";
+          else if (allNames.includes("c6")) institutionName = "C6 Bank";
           log(`  MeuPluggy → inferido como: ${institutionName}`);
         }
 
@@ -115,7 +116,7 @@ export async function POST(request: Request) {
 
     log(`Finalizado: ${results.itemsSynced}/${results.itemsFound}`);
 
-    // Atualizar cache do dashboard
+    // Atualizar cache do dashboard — recalcular TUDO dos dados frescos
     log("Atualizando cache...");
     try {
       const [balRow, crRow, invRow, bnkRow] = await Promise.all([
@@ -130,8 +131,16 @@ export async function POST(request: Request) {
       const ti = Number(invRow[0]?.v) || 0;
       const cb = Number(bnkRow[0]?.v) || 0;
       const cacheData = { totalBalance: tb, totalCreditUsed: tcu, totalCreditLimit: tcl, totalInvested: ti, netBalance: tb + ti - tcu, connectedBanks: cb };
-      await sql`INSERT INTO dashboard_cache (user_id, data, updated_at) VALUES (${userId}, ${JSON.stringify(cacheData)}::jsonb, NOW()) ON CONFLICT (user_id) DO UPDATE SET data = EXCLUDED.data, updated_at = NOW()`;
-      log(`Cache OK: bal=${tb} cr=${tcu}/${tcl} inv=${ti}`);
+      log(`Cache calculado: bal=${tb} cr=${tcu}/${tcl} inv=${ti}`);
+
+      // Tentar com updated_at primeiro, fallback para sem timestamp
+      try {
+        await sql`INSERT INTO dashboard_cache (user_id, data, updated_at) VALUES (${userId}, ${JSON.stringify(cacheData)}::jsonb, NOW()) ON CONFLICT (user_id) DO UPDATE SET data = EXCLUDED.data, updated_at = NOW()`;
+      } catch {
+        // Se updated_at não existir, tentar só data
+        await sql`INSERT INTO dashboard_cache (user_id, data) VALUES (${userId}, ${JSON.stringify(cacheData)}::jsonb) ON CONFLICT (user_id) DO UPDATE SET data = EXCLUDED.data`;
+      }
+      log("Cache salvo OK");
     } catch (cacheErr) {
       log(`Cache ERRO: ${cacheErr instanceof Error ? cacheErr.message : String(cacheErr)}`);
     }
