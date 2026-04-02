@@ -63,15 +63,31 @@ export async function POST(request: Request) {
       try {
         log(`Sync ${dbItem.institution_name}...`);
         const item = await pluggy.fetchItem(dbItem.item_id);
-        log(`  Status: ${item.status}`);
+        log(`  Status: ${item.status}, connector: ${item.connector.name}`);
 
-        await sql`UPDATE pluggy_items SET status = ${item.status}, institution_name = ${item.connector.name} WHERE id = ${dbItem.id}::uuid`;
+        // Usar nome real do conector. Se for "MeuPluggy" (sandbox), tentar inferir do nome das contas
+        let institutionName = item.connector.name;
+        if (institutionName === "MeuPluggy") {
+          const { results: accts } = await pluggy.fetchAccounts(dbItem.item_id);
+          const firstAccountName = accts[0]?.name?.toLowerCase() || "";
+          if (firstAccountName.includes("nubank") || firstAccountName.includes("nu pagamento")) institutionName = "Nubank";
+          else if (firstAccountName.includes("inter")) institutionName = "Banco Inter";
+          else if (firstAccountName.includes("caixa") || firstAccountName.includes("cef") || firstAccountName.includes("sim visa")) institutionName = "Caixa Econômica Federal";
+          else if (firstAccountName.includes("bradesco")) institutionName = "Bradesco";
+          else if (firstAccountName.includes("itau") || firstAccountName.includes("itaú")) institutionName = "Itaú";
+          else if (firstAccountName.includes("santander")) institutionName = "Santander";
+          else if (firstAccountName.includes("c6")) institutionName = "C6 Bank";
+          else institutionName = item.connector.name; // manter original
+          log(`  MeuPluggy → inferido como: ${institutionName}`);
+        }
 
-        const acct = await syncAccounts(pluggy, dbItem, item.connector.name, userId, log);
+        await sql`UPDATE pluggy_items SET status = ${item.status}, institution_name = ${institutionName} WHERE id = ${dbItem.id}::uuid`;
+
+        const acct = await syncAccounts(pluggy, dbItem, institutionName, userId, log);
         const [txCount, invCount, loanCount] = await Promise.all([
           syncTransactions(pluggy, dbItem, userId, log),
           syncInvestments(pluggy, dbItem, userId, log),
-          syncLoans(pluggy, dbItem, item.connector.name, userId, log),
+          syncLoans(pluggy, dbItem, institutionName, userId, log),
         ]);
 
         log(`  OK: ${acct.bankAccounts}bank ${acct.creditAccounts}credit ${txCount}tx`);

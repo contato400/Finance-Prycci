@@ -2,10 +2,7 @@
 // O conector "MeuPluggy" (sandbox) e outros nomes genéricos são mapeados aqui.
 
 const INSTITUTION_MAP: Record<string, string> = {
-  // Sandbox / agregador — será substituído pelo nome real no próximo sync
-  "MeuPluggy": "Banco conectado",
-
-  // Nomes de conectores Pluggy → nomes de exibição
+  // Nomes de conectores Pluggy → nomes de exibição amigáveis
   "Nu Pagamentos S.A.": "Nubank",
   "Nu Pagamentos": "Nubank",
   "Nu Invest": "Nubank Investimentos",
