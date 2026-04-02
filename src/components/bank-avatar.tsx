@@ -1,7 +1,6 @@
 "use client";
 
 import { useState } from "react";
-import Image from "next/image";
 import { getBankLogoUrl, getColorFromName } from "@/lib/bank-logos";
 
 interface BankAvatarProps {
@@ -23,7 +22,8 @@ export function BankAvatar({ bankName, size = 32, className = "" }: BankAvatarPr
 
   if (logoUrl && !imgError) {
     return (
-      <Image
+      // eslint-disable-next-line @next/next/no-img-element
+      <img
         src={logoUrl}
         alt={bankName}
         width={size}
@@ -31,7 +31,6 @@ export function BankAvatar({ bankName, size = 32, className = "" }: BankAvatarPr
         className={`rounded-full bg-white object-contain ${className}`}
         style={{ width: size, height: size }}
         onError={() => setImgError(true)}
-        unoptimized
       />
     );
   }

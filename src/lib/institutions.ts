@@ -2,9 +2,13 @@
 // O conector "MeuPluggy" (sandbox) e outros nomes genéricos são mapeados aqui.
 
 const INSTITUTION_MAP: Record<string, string> = {
+  // Sandbox — inferir do nome da conta no sync, fallback genérico
+  "MeuPluggy": "MeuPluggy",
+
   // Nomes de conectores Pluggy → nomes de exibição amigáveis
   "Nu Pagamentos S.A.": "Nubank",
   "Nu Pagamentos": "Nubank",
+  "Nu Pagamentos S.A. - Instituição de Pagamento": "Nubank",
   "Nu Invest": "Nubank Investimentos",
   "Nubank": "Nubank",
   "Banco Inter S.A.": "Banco Inter",
@@ -19,8 +23,8 @@ const INSTITUTION_MAP: Record<string, string> = {
   "Santander": "Santander",
   "Banco do Brasil S.A.": "Banco do Brasil",
   "Banco do Brasil": "Banco do Brasil",
-  "Caixa Econômica Federal": "Caixa",
-  "Caixa": "Caixa",
+  "Caixa Econômica Federal": "Caixa Econômica Federal",
+  "Caixa": "Caixa Econômica Federal",
   "C6 Bank": "C6 Bank",
   "Banco C6 S.A.": "C6 Bank",
   "BTG Pactual": "BTG Pactual",

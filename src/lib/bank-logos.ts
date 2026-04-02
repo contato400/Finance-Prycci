@@ -3,12 +3,13 @@
 // são 100% derivados do institution_name da Pluggy.
 
 export const bankDomains: Record<string, string> = {
-  'nubank': 'nubank.com.br',
-  'nu pagamentos': 'nubank.com.br',
-  'banco inter': 'inter.co',
-  'inter': 'inter.co',
+  // Ordem importa: mais específico primeiro
   'caixa econômica federal': 'caixa.gov.br',
   'caixa': 'caixa.gov.br',
+  'banco inter': 'inter.co',
+  'inter': 'inter.co',
+  'nubank': 'nubank.com.br',
+  'nu pagamentos': 'nubank.com.br',
   'bradesco': 'bradesco.com.br',
   'itaú': 'itau.com.br',
   'itau': 'itau.com.br',
