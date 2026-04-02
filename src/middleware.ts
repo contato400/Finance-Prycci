@@ -1,13 +1,16 @@
 import { NextResponse } from "next/server";
 import type { NextRequest } from "next/server";
-import { createClient } from "@supabase/supabase-js";
 
-const publicPaths = ["/login", "/cadastro", "/recuperar-senha", "/pricing", "/api/auth", "/api/debug-env", "/api/debug-auth"];
+// Rotas que NÃO precisam de autenticação
+const publicPaths = [
+  "/login", "/cadastro", "/recuperar-senha", "/pricing",
+  "/api/debug-env", "/api/debug-auth",
+];
 
 export async function middleware(request: NextRequest) {
   const { pathname } = request.nextUrl;
 
-  // Allow public paths and static files
+  // Allow public paths, static files, and root
   if (
     publicPaths.some((p) => pathname.startsWith(p)) ||
     pathname.startsWith("/_next") ||
@@ -17,34 +20,40 @@ export async function middleware(request: NextRequest) {
     return NextResponse.next();
   }
 
-  // For API routes, check Authorization header
+  // For API routes, extract user from Authorization header
   if (pathname.startsWith("/api/")) {
     const authHeader = request.headers.get("Authorization");
     if (!authHeader?.startsWith("Bearer ")) {
-      return NextResponse.json({ error: "Não autorizado" }, { status: 401 });
+      return NextResponse.json({ error: "Não autorizado — token ausente" }, { status: 401 });
     }
 
     const token = authHeader.slice(7);
-    const url = process.env.NEXT_PUBLIC_SUPABASE_URL || "";
-    // Tentar service role key primeiro (mais confiável), fallback para anon key
-    const key = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || "";
 
-    const supabase = createClient(url, key);
-    const { data: { user }, error } = await supabase.auth.getUser(token);
+    // Decodificar o JWT para extrair o user_id sem chamar o Supabase
+    // O token JWT do Supabase tem o formato: header.payload.signature
+    // O payload contém o campo "sub" que é o user_id
+    try {
+      const payload = JSON.parse(atob(token.split(".")[1]));
+      const userId = payload.sub;
 
-    if (error || !user) {
-      return NextResponse.json({
-        error: "Não autorizado",
-        _debug: { hasUrl: !!url, keyPrefix: key.substring(0, 10), authError: error?.message },
-      }, { status: 401 });
+      if (!userId) {
+        return NextResponse.json({ error: "Token inválido — sem user_id" }, { status: 401 });
+      }
+
+      // Verificar se o token não expirou
+      if (payload.exp && payload.exp < Math.floor(Date.now() / 1000)) {
+        return NextResponse.json({ error: "Token expirado" }, { status: 401 });
+      }
+
+      // Propagar user_id no request header para as API routes
+      const requestHeaders = new Headers(request.headers);
+      requestHeaders.set("x-user-id", userId);
+      return NextResponse.next({
+        request: { headers: requestHeaders },
+      });
+    } catch {
+      return NextResponse.json({ error: "Token inválido — falha ao decodificar" }, { status: 401 });
     }
-
-    // Attach user_id to request headers for downstream use
-    const requestHeaders = new Headers(request.headers);
-    requestHeaders.set("x-user-id", user.id);
-    return NextResponse.next({
-      request: { headers: requestHeaders },
-    });
   }
 
   // For app pages, check session cookie

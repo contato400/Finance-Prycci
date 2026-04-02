@@ -24,9 +24,9 @@ export async function GET(request: Request) {
     const end = searchParams.get("end") ?? new Date(now.getFullYear(), now.getMonth() + 1, 0).toISOString().split("T")[0];
 
     // 1. Saldos atuais do cache — tenta com user_id, fallback para id=1
-    let cacheRows = await sql`SELECT data, COALESCE(updated_at, created_at) AS cached_at FROM dashboard_cache WHERE user_id = ${userId} LIMIT 1`;
+    let cacheRows = await sql`SELECT data, created_at AS cached_at FROM dashboard_cache WHERE user_id = ${userId} LIMIT 1`;
     if (!cacheRows.length) {
-      cacheRows = await sql`SELECT data, COALESCE(updated_at, created_at) AS cached_at FROM dashboard_cache LIMIT 1`;
+      cacheRows = await sql`SELECT data, created_at AS cached_at FROM dashboard_cache LIMIT 1`;
     }
 
     if (!cacheRows.length || !cacheRows[0].data || Object.keys(cacheRows[0].data).length === 0) {
