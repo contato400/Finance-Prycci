@@ -78,7 +78,7 @@ export default function DashboardPage() {
     apiFetch(`/api/dashboard?start=${startStr}&end=${endStr}`, { signal: controller.signal })
       .then(async (res) => {
         const json = await res.json();
-        if (!res.ok || json.error) { setError(json.error || `Erro ${res.status}`); return; }
+        if (!res.ok) { setError(json.error || `HTTP ${res.status}`); return; }
         setData(json);
       })
       .catch((err) => { if (err.name !== "AbortError") setError(err.message || "Erro de rede"); })

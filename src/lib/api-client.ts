@@ -8,6 +8,14 @@ export async function apiFetch(url: string, options?: RequestInit): Promise<Resp
   const headers = new Headers(options?.headers);
   if (session?.access_token) {
     headers.set("Authorization", `Bearer ${session.access_token}`);
+  } else {
+    // Se não tem sessão, tentar refresh
+    const { data: refreshData } = await supabase.auth.refreshSession();
+    if (refreshData?.session?.access_token) {
+      headers.set("Authorization", `Bearer ${refreshData.session.access_token}`);
+    } else {
+      console.warn("[apiFetch] Sem sessão ativa para", url);
+    }
   }
 
   return fetch(url, { ...options, headers });

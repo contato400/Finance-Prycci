@@ -114,7 +114,7 @@ export async function POST(request: Request) {
       const ti = Number(invRow[0]?.v) || 0;
       const cb = Number(bnkRow[0]?.v) || 0;
       const cacheData = { totalBalance: tb, totalCreditUsed: tcu, totalCreditLimit: tcl, totalInvested: ti, netBalance: tb + ti - tcu, connectedBanks: cb };
-      await sql`INSERT INTO dashboard_cache (user_id, data, created_at) VALUES (${userId}, ${JSON.stringify(cacheData)}::jsonb, NOW()) ON CONFLICT (user_id) DO UPDATE SET data = EXCLUDED.data, created_at = NOW()`;
+      await sql`INSERT INTO dashboard_cache (user_id, data, updated_at) VALUES (${userId}, ${JSON.stringify(cacheData)}::jsonb, NOW()) ON CONFLICT (user_id) DO UPDATE SET data = EXCLUDED.data, updated_at = NOW()`;
       log(`Cache OK: bal=${tb} cr=${tcu}/${tcl} inv=${ti}`);
     } catch (cacheErr) {
       log(`Cache ERRO: ${cacheErr instanceof Error ? cacheErr.message : String(cacheErr)}`);
