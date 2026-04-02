@@ -1,7 +1,6 @@
 "use client";
 
 import { useState } from "react";
-import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { createSupabaseBrowser } from "@/lib/supabase/browser";
 import { Button } from "@/components/ui/button";
@@ -13,7 +12,6 @@ export default function LoginPage() {
   const [password, setPassword] = useState("");
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
-  const router = useRouter();
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -31,8 +29,13 @@ export default function LoginPage() {
       setError(authError.message);
       setLoading(false);
     } else {
-      router.push("/dashboard");
-      router.refresh();
+      // Aguardar sessão ser estabelecida antes de navegar
+      const { data: { session } } = await supabase.auth.getSession();
+      if (session?.access_token) {
+        const { updateCachedToken } = await import("@/lib/api-client");
+        updateCachedToken(session.access_token, session.expires_at);
+      }
+      window.location.href = "/dashboard";
     }
   }
 
