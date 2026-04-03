@@ -1,9 +1,7 @@
 // Mapa de domínios para logos de bancos.
 // Usa Google Favicons API (gratuita, confiável) como fonte primária.
-// Clearbit foi descontinuado e retorna 403.
 
 export const bankDomains: Record<string, string> = {
-  // Ordem importa: mais específico primeiro
   'caixa econômica federal': 'caixa.gov.br',
   'caixa': 'caixa.gov.br',
   'banco inter': 'inter.co',
@@ -15,6 +13,7 @@ export const bankDomains: Record<string, string> = {
   'itau': 'itau.com.br',
   'santander': 'santander.com.br',
   'banco do brasil': 'bb.com.br',
+  'bb': 'bb.com.br',
   'xp': 'xp.com.br',
   'c6 bank': 'c6bank.com.br',
   'c6': 'c6bank.com.br',
@@ -33,6 +32,7 @@ export const bankDomains: Record<string, string> = {
   'pagseguro': 'pagseguro.com.br',
   'stone': 'stone.com.br',
   'banco pan': 'bancopan.com.br',
+  'pan': 'bancopan.com.br',
   'realize': 'cartaorealize.com.br',
   'modal': 'modalmais.com.br',
   'daycoval': 'daycoval.com.br',
@@ -45,31 +45,75 @@ export function getBankLogoUrl(bankName: string): string | null {
   const key = bankName.toLowerCase();
   for (const [name, domain] of Object.entries(bankDomains)) {
     if (key.includes(name)) {
-      // Google Favicons API — gratuita, funciona sempre, retorna PNG
       return `https://www.google.com/s2/favicons?domain=${domain}&sz=128`;
     }
   }
   return null;
 }
 
-// Cores geradas 100% por hash do nome — funciona para QUALQUER banco.
-const PALETTE = [
-  '#820AD1', '#FF7A00', '#006CB7', '#E53935',
-  '#00897B', '#F4511E', '#8E24AA', '#3949AB',
-  '#00ACC1', '#43A047', '#FFB300', '#6D4C41',
-  '#5C6BC0', '#D81B60', '#00838F', '#558B2F',
+// Cores reais dos bancos brasileiros — case-insensitive, contains match
+// Ordem: mais específico primeiro para evitar matches parciais
+const BANK_COLORS: Array<{ match: string; color: string }> = [
+  { match: 'nubank empresas', color: '#6A0DAD' },
+  { match: 'nubank', color: '#8A05BE' },
+  { match: 'nu pagamentos', color: '#8A05BE' },
+  { match: 'banco inter', color: '#FF6B00' },
+  { match: 'inter', color: '#FF6B00' },
+  { match: 'caixa econômica', color: '#005CA9' },
+  { match: 'caixa', color: '#005CA9' },
+  { match: 'bradesco', color: '#CC0000' },
+  { match: 'itaú', color: '#EC7000' },
+  { match: 'itau', color: '#EC7000' },
+  { match: 'santander', color: '#EC0000' },
+  { match: 'banco do brasil', color: '#F9BB00' },
+  { match: 'bb', color: '#F9BB00' },
+  { match: 'btg pactual', color: '#1A1A1A' },
+  { match: 'btg', color: '#1A1A1A' },
+  { match: 'c6 bank', color: '#000000' },
+  { match: 'c6', color: '#000000' },
+  { match: 'sicoob', color: '#006937' },
+  { match: 'sicredi', color: '#4CAF50' },
+  { match: 'picpay', color: '#21C25E' },
+  { match: 'mercado pago', color: '#009EE3' },
+  { match: 'next', color: '#00CF72' },
+  { match: 'neon', color: '#1FD8C1' },
+  { match: 'original', color: '#007A4D' },
+  { match: 'banco pan', color: '#034EA2' },
+  { match: 'pan', color: '#034EA2' },
+  { match: 'safra', color: '#003087' },
+  { match: 'modal', color: '#0066CC' },
+  { match: 'xp', color: '#1E1E1E' },
+  { match: 'will bank', color: '#FFD600' },
+  { match: 'pagbank', color: '#00A868' },
+  { match: 'pagseguro', color: '#00A868' },
+  { match: 'stone', color: '#00A868' },
+  { match: 'banrisul', color: '#004B87' },
+  { match: 'daycoval', color: '#003366' },
 ];
 
+// Fallback hash palette para bancos não mapeados
+const HASH_PALETTE = [
+  '#6366F1', '#EC4899', '#14B8A6', '#F97316',
+  '#8B5CF6', '#06B6D4', '#EF4444', '#84CC16',
+  '#D946EF', '#0EA5E9', '#F59E0B', '#10B981',
+];
+
+// Retorna a cor real do banco (prioridade) ou hash como fallback
 export function getColorFromName(name: string): string {
+  const lower = name.toLowerCase();
+  for (const { match, color } of BANK_COLORS) {
+    if (lower.includes(match)) return color;
+  }
+  // Fallback: hash do nome
   let hash = 0;
   for (const char of name) hash += char.charCodeAt(0);
-  return PALETTE[hash % PALETTE.length];
+  return HASH_PALETTE[hash % HASH_PALETTE.length];
 }
 
-// Gera gradiente a partir da cor base (20% mais escuro no final)
+// Gera gradiente: cor do banco → 25% mais escuro
 export function getGradientFromName(name: string): { from: string; to: string } {
   const hex = getColorFromName(name);
-  return { from: hex, to: darken(hex, 0.2) };
+  return { from: hex, to: darken(hex, 0.25) };
 }
 
 function darken(hex: string, amount: number): string {
