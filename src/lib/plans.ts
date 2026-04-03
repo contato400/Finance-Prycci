@@ -46,7 +46,7 @@ export const PLANS: Record<PlanType, PlanInfo> = {
   pro: {
     id: "pro",
     name: "Pro",
-    price: 29.90,
+    price: 97,
     limits: {
       maxBanks: Infinity,
       historyDays: Infinity,
@@ -68,7 +68,7 @@ export const PLANS: Record<PlanType, PlanInfo> = {
   business: {
     id: "business",
     name: "Business",
-    price: 79.90,
+    price: 197,
     limits: {
       maxBanks: Infinity,
       historyDays: Infinity,

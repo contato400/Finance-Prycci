@@ -32,7 +32,7 @@ const PLANS = [
   {
     id: "pro",
     name: "Pro",
-    price: "R$ 29,90",
+    price: "R$ 97,00",
     sub: "/mês",
     icon: <Zap className="h-6 w-6" />,
     popular: true,
@@ -57,7 +57,7 @@ const PLANS = [
   {
     id: "business",
     name: "Business",
-    price: "R$ 79,90",
+    price: "R$ 197,00",
     sub: "/mês",
     icon: <Building2 className="h-6 w-6" />,
     popular: false,
