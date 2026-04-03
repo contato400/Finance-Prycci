@@ -30,12 +30,12 @@ export async function GET(request: Request) {
              a.balance::float as balance,
              COALESCE(a.credit_limit, 0)::float as credit_limit,
              a.updated_at,
-             p.institution_name
+             COALESCE(p.institution_name, 'Desconhecido') as institution_name
       FROM accounts a
-      JOIN pluggy_items p ON a.item_id = p.id
+      LEFT JOIN pluggy_items p ON a.item_id = p.id
       WHERE a.user_id = ${userId}
         AND (a.type IN ('CREDIT', 'CREDIT_CARD') OR COALESCE(a.credit_limit, 0) > 0)
-      ORDER BY a.updated_at DESC`;
+      ORDER BY a.credit_limit DESC NULLS LAST`;
 
     const enrichedCards = cards.map((c) => {
       const usedBalance = Math.abs(num(c.balance));
@@ -73,7 +73,23 @@ export async function GET(request: Request) {
     const totalLimit = enrichedCards.reduce((s, c) => s + c.credit_limit, 0);
     const totalAvailable = enrichedCards.reduce((s, c) => s + c.available_limit, 0);
 
-    return NextResponse.json({ cards: enrichedCards, transactions, totalUsed, totalLimit, totalAvailable });
+    // Debug: contar total de contas de crédito no banco para esse user
+    const [debugCount] = await sql`
+      SELECT COUNT(*)::int as total,
+             COUNT(*) FILTER (WHERE type IN ('CREDIT','CREDIT_CARD'))::int as credit_type,
+             COUNT(*) FILTER (WHERE COALESCE(credit_limit,0) > 0)::int as has_limit
+      FROM accounts WHERE user_id = ${userId}`;
+
+    return NextResponse.json({
+      cards: enrichedCards, transactions, totalUsed, totalLimit, totalAvailable,
+      _debug: {
+        userId,
+        totalAccountsForUser: num(debugCount?.total),
+        creditTypeCount: num(debugCount?.credit_type),
+        hasLimitCount: num(debugCount?.has_limit),
+        cardsReturned: enrichedCards.length,
+      },
+    });
   } catch (error) {
     console.error("Cartoes error:", error instanceof Error ? error.message : error);
     return NextResponse.json({
