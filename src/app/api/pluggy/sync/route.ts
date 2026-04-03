@@ -175,7 +175,7 @@ async function syncAccounts(pluggy: Pluggy, dbItem: { id: string; item_id: strin
                 ${account.balance}, ${account.creditData?.creditLimit || 0}, ${account.currencyCode}, ${userId}, now())
         ON CONFLICT (pluggy_account_id) DO UPDATE SET
           name = EXCLUDED.name, type = EXCLUDED.type, balance = EXCLUDED.balance,
-          credit_limit = EXCLUDED.credit_limit, currency = EXCLUDED.currency, updated_at = now()
+          credit_limit = EXCLUDED.credit_limit, currency = EXCLUDED.currency, user_id = EXCLUDED.user_id, updated_at = now()
         RETURNING id`;
 
       if (isCreditAccount) creditAccounts++; else bankAccounts++;
@@ -213,7 +213,7 @@ async function syncTransactions(pluggy: Pluggy, dbItem: { id: string; item_id: s
         const txDate = typeof tx.date === "string" ? tx.date : new Date(tx.date).toISOString().split("T")[0];
         await sql`INSERT INTO transactions (account_id, pluggy_transaction_id, description, amount, date, category, type, user_id)
           VALUES (${acct.id}::uuid, ${tx.id}, ${tx.description}, ${tx.amount}, ${txDate}, ${tx.category || null}, ${tx.type}, ${userId})
-          ON CONFLICT (pluggy_transaction_id) DO UPDATE SET description = EXCLUDED.description, amount = EXCLUDED.amount, date = EXCLUDED.date, category = EXCLUDED.category, type = EXCLUDED.type`;
+          ON CONFLICT (pluggy_transaction_id) DO UPDATE SET description = EXCLUDED.description, amount = EXCLUDED.amount, date = EXCLUDED.date, category = EXCLUDED.category, type = EXCLUDED.type, user_id = EXCLUDED.user_id`;
       }
       count += txs.length;
     } catch (e) { log(`  Erro tx: ${e instanceof Error ? e.message : String(e)}`); }
@@ -229,7 +229,7 @@ async function syncInvestments(pluggy: Pluggy, dbItem: { id: string; item_id: st
     for (const inv of invs) {
       await sql`INSERT INTO investments (item_id, pluggy_investment_id, name, type, balance, quantity, value, user_id, updated_at)
         VALUES (${dbItem.id}::uuid, ${inv.id}, ${inv.name}, ${inv.type}, ${inv.balance}, ${inv.quantity || 0}, ${inv.value || 0}, ${userId}, now())
-        ON CONFLICT (pluggy_investment_id) DO UPDATE SET name = EXCLUDED.name, type = EXCLUDED.type, balance = EXCLUDED.balance, quantity = EXCLUDED.quantity, value = EXCLUDED.value, updated_at = now()`;
+        ON CONFLICT (pluggy_investment_id) DO UPDATE SET name = EXCLUDED.name, type = EXCLUDED.type, balance = EXCLUDED.balance, quantity = EXCLUDED.quantity, value = EXCLUDED.value, user_id = EXCLUDED.user_id, updated_at = now()`;
       count++;
     }
   } catch (e) { log(`  Inv indisponível: ${e instanceof Error ? e.message : String(e)}`); }

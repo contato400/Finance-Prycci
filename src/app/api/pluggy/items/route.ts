@@ -25,7 +25,8 @@ export async function POST(request: Request) {
       VALUES (${itemId}, ${item.connector.name}, ${item.status}, ${userId})
       ON CONFLICT (item_id) DO UPDATE SET
         institution_name = EXCLUDED.institution_name,
-        status = EXCLUDED.status
+        status = EXCLUDED.status,
+        user_id = EXCLUDED.user_id
       RETURNING *
     `;
 
