@@ -10,7 +10,7 @@ import { usePlan } from "@/hooks/use-plan";
 
 export function PluggyWidget() {
   const [loading, setLoading] = useState(false);
-  const { limits } = usePlan();
+  const { limits, loading: planLoading } = usePlan();
 
   async function handleConnect() {
     setLoading(true);
@@ -87,8 +87,8 @@ export function PluggyWidget() {
     }
   }
 
-  // Se limite é finito e já atingiu, mostrar botão de upgrade
-  if (limits.maxBanks < Infinity) {
+  // Só mostra badge de limite para plano Free (maxBanks finito) e após carregar o plano
+  if (!planLoading && limits.maxBanks < Infinity) {
     return (
       <div className="flex items-center gap-2">
         <Button
