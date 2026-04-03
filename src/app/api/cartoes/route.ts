@@ -34,7 +34,7 @@ export async function GET(request: Request) {
       FROM accounts a
       JOIN pluggy_items p ON a.item_id = p.id
       WHERE a.user_id = ${userId}
-        AND a.type IN ('CREDIT', 'CREDIT_CARD')
+        AND (a.type IN ('CREDIT', 'CREDIT_CARD') OR COALESCE(a.credit_limit, 0) > 0)
       ORDER BY a.updated_at DESC`;
 
     const enrichedCards = cards.map((c) => {
