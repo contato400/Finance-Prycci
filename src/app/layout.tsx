@@ -4,7 +4,7 @@ import { AuthSessionProvider } from "@/components/providers/session-provider";
 import { Toaster } from "@/components/ui/toaster";
 
 export const metadata: Metadata = {
-  title: "FinanceOS — Organização Financeira Pessoal",
+  title: "Prycci Finance — Organização Financeira Pessoal",
   description: "App de organização financeira pessoal com integração bancária e insights de IA",
   icons: { icon: "/favicon.ico" },
 };

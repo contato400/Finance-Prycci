@@ -121,7 +121,7 @@ export default function DashboardPage() {
           <CardContent className="flex flex-col items-center gap-4 py-8 text-center">
             <Building2 className="h-10 w-10 text-emerald-400" />
             <div>
-              <p className="text-base font-semibold text-white">Bem-vindo ao FinanceOS!</p>
+              <p className="text-base font-semibold text-white">Bem-vindo ao Prycci Finance!</p>
               <p className="mt-1 text-sm text-emerald-300">{data.message || "Conecte seu banco para começar."}</p>
             </div>
             <div className="flex items-center gap-4 text-xs text-slate-400">

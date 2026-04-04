@@ -107,9 +107,9 @@ export default function CreditoPage() {
         <p className="text-sm text-slate-400">Score, capacidade, simulador e cartões</p>
       </div>
 
-      {/* ═══ SEÇÃO 1: Score FinanceOS ═══ */}
+      {/* ═══ SEÇÃO 1: Score Prycci Finance ═══ */}
       <Card className="border-slate-800 bg-slate-900">
-        <CardHeader><CardTitle className="flex items-center gap-2 text-white"><ShieldCheck className="h-5 w-5" />Score FinanceOS</CardTitle></CardHeader>
+        <CardHeader><CardTitle className="flex items-center gap-2 text-white"><ShieldCheck className="h-5 w-5" />Score Prycci Finance</CardTitle></CardHeader>
         <CardContent>
           <div className="flex flex-col items-center gap-6 md:flex-row md:items-start">
             <ScoreGauge score={s?.total ?? 0} />

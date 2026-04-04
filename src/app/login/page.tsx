@@ -46,7 +46,7 @@ export default function LoginPage() {
           <div className="mb-2 flex h-12 w-12 items-center justify-center rounded-xl bg-emerald-500">
             <BarChart3 className="h-7 w-7 text-slate-950" />
           </div>
-          <CardTitle className="text-xl text-white">FinanceOS</CardTitle>
+          <CardTitle className="text-xl text-white">Prycci Finance</CardTitle>
           <p className="text-sm text-slate-400">Entre na sua conta</p>
         </CardHeader>
         <CardContent>

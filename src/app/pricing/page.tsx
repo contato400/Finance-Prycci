@@ -69,7 +69,7 @@ const PLANS = [
       "Suporte dedicado",
     ],
     cta: "Falar com equipe",
-    href: "mailto:contato@financeos.com.br",
+    href: "mailto:contato@pryccifinance.com.br",
     colors: {
       bg: "bg-blue-950/30",
       border: "border-blue-500/50",
@@ -87,7 +87,7 @@ export default function PricingPage() {
       <Link href="/" className="mb-4 flex h-12 w-12 items-center justify-center rounded-xl bg-emerald-500">
         <BarChart3 className="h-7 w-7 text-slate-950" />
       </Link>
-      <h1 className="text-3xl font-bold text-white">FinanceOS</h1>
+      <h1 className="text-3xl font-bold text-white">Prycci Finance</h1>
       <p className="mt-2 text-center text-slate-400">
         Escolha o plano ideal para organizar suas finanças
       </p>

@@ -64,7 +64,7 @@ export function Sidebar() {
           <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-emerald-500">
             <BarChart3 className="h-5 w-5 text-slate-950" />
           </div>
-          <span className="text-lg font-bold text-white">FinanceOS</span>
+          <span className="text-lg font-bold text-white">Prycci Finance</span>
         </div>
 
         <nav className="flex flex-col gap-1 p-4">

@@ -17,7 +17,7 @@ export async function GET(request: Request) {
     if (auth instanceof NextResponse) return auth;
     const { userId } = auth;
 
-    // === SEÇÃO 1: Score FinanceOS calculado ===
+    // === SEÇÃO 1: Score Prycci Finance calculado ===
     // Renda média mensal últimos 3 meses
     const avgIncomeRow = await sql`
       SELECT AVG(total)::float AS avg_income FROM (
@@ -82,7 +82,7 @@ export async function GET(request: Request) {
     const today = new Date().toISOString().split("T")[0];
     await sql`
       INSERT INTO credit_score (user_id, score, source, recorded_at, updated_at)
-      VALUES (${userId}, ${totalScore}, 'FinanceOS', ${today}, NOW())
+      VALUES (${userId}, ${totalScore}, 'Prycci Finance', ${today}, NOW())
       ON CONFLICT ON CONSTRAINT credit_score_pkey DO NOTHING`;
 
     const scoreBreakdown = {

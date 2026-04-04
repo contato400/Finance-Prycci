@@ -20,7 +20,7 @@ export async function POST(request: Request) {
     const today = new Date().toISOString().split("T")[0];
     const [row] = await sql`
       INSERT INTO credit_score (user_id, score, source, recorded_at, updated_at)
-      VALUES (${userId}, ${score}, ${source || "FinanceOS"}, ${today}, now())
+      VALUES (${userId}, ${score}, ${source || "Prycci Finance"}, ${today}, now())
       RETURNING *
     `;
 
