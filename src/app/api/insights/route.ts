@@ -101,6 +101,7 @@ Seja direto, prático e use valores em R$.`;
         generationConfig: {
           temperature: 0.7,
           maxOutputTokens: 1024,
+          responseMimeType: "application/json",
         },
       }),
     });
@@ -112,10 +113,27 @@ Seja direto, prático e use valores em R$.`;
     }
 
     const geminiData = await geminiRes.json();
-    let text = geminiData?.candidates?.[0]?.content?.parts?.[0]?.text || "";
 
-    // Limpar markdown wrappers que o Gemini pode adicionar
+    // Gemini 2.5-flash pode retornar múltiplos parts (thinking + response)
+    // Pegar TODOS os parts e concatenar, ou pegar o último que geralmente é a resposta
+    const parts = geminiData?.candidates?.[0]?.content?.parts || [];
+    let text = "";
+
+    // Percorrer todos os parts e pegar o que contém JSON
+    for (const part of parts) {
+      if (part.text) {
+        text = part.text;
+      }
+    }
+
+    // Limpar markdown wrappers e extrair JSON
     text = text.replace(/```json\s*/g, "").replace(/```\s*/g, "").trim();
+
+    // Se o texto contém JSON embutido em outras coisas, extrair o bloco JSON
+    const jsonMatch = text.match(/\{[\s\S]*"resumo"[\s\S]*\}/);
+    if (jsonMatch) {
+      text = jsonMatch[0];
+    }
 
     // Parse do JSON da resposta
     let analysis;
@@ -123,7 +141,7 @@ Seja direto, prático e use valores em R$.`;
       analysis = JSON.parse(text);
     } catch {
       analysis = {
-        resumo: text,
+        resumo: text.slice(0, 500),
         pontos_atencao: [],
         recomendacoes: [],
         proximos_passos: [],
