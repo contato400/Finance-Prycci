@@ -1,6 +1,5 @@
 import { NextResponse } from "next/server";
 import { requireAuth } from "@/lib/api-auth";
-import Anthropic from "@anthropic-ai/sdk";
 import sql from "@/lib/db";
 
 export const dynamic = "force-dynamic";
@@ -17,9 +16,9 @@ export async function POST(request: Request) {
     if (auth instanceof NextResponse) return auth;
     const { userId } = auth;
 
-    const apiKey = process.env.ANTHROPIC_API_KEY;
+    const apiKey = process.env.GEMINI_API_KEY;
     if (!apiKey) {
-      return NextResponse.json({ error: "ANTHROPIC_API_KEY não configurada" }, { status: 500 });
+      return NextResponse.json({ error: "GEMINI_API_KEY não configurada" }, { status: 500 });
     }
 
     // Buscar dados financeiros do usuário
@@ -80,7 +79,7 @@ ${gastosPorCategoria || "Sem dados de gastos"}
 MAIORES GASTOS:
 ${maioresGastos || "Sem transações recentes"}
 
-Responda EXATAMENTE neste formato JSON (sem markdown, sem backticks):
+Responda EXATAMENTE neste formato JSON (sem markdown, sem backticks, sem blocos de código):
 {
   "resumo": "Parágrafo com resumo geral da situação financeira",
   "pontos_atencao": ["item 1", "item 2", "item 3"],
@@ -92,21 +91,37 @@ Responda EXATAMENTE neste formato JSON (sem markdown, sem backticks):
 O score_saude é de 1 a 10 (10 = saúde financeira excelente).
 Seja direto, prático e use valores em R$.`;
 
-    const client = new Anthropic({ apiKey });
-    const message = await client.messages.create({
-      model: "claude-sonnet-4-6",
-      max_tokens: 1024,
-      messages: [{ role: "user", content: prompt }],
+    // Chamar Google Gemini API
+    const geminiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${apiKey}`;
+    const geminiRes = await fetch(geminiUrl, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        contents: [{ parts: [{ text: prompt }] }],
+        generationConfig: {
+          temperature: 0.7,
+          maxOutputTokens: 1024,
+        },
+      }),
     });
 
-    const text = message.content[0].type === "text" ? message.content[0].text : "";
+    if (!geminiRes.ok) {
+      const errBody = await geminiRes.text();
+      console.error("Gemini API error:", geminiRes.status, errBody);
+      return NextResponse.json({ error: `Gemini API erro: ${geminiRes.status}` }, { status: 500 });
+    }
+
+    const geminiData = await geminiRes.json();
+    let text = geminiData?.candidates?.[0]?.content?.parts?.[0]?.text || "";
+
+    // Limpar markdown wrappers que o Gemini pode adicionar
+    text = text.replace(/```json\s*/g, "").replace(/```\s*/g, "").trim();
 
     // Parse do JSON da resposta
     let analysis;
     try {
       analysis = JSON.parse(text);
     } catch {
-      // Se não parsear, retornar como texto raw
       analysis = {
         resumo: text,
         pontos_atencao: [],
