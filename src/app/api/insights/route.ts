@@ -10,6 +10,11 @@ function num(v: unknown): number {
   return isNaN(n) ? 0 : n;
 }
 
+function toStringArray(v: unknown): string[] {
+  if (Array.isArray(v)) return v.map(String);
+  return [];
+}
+
 export async function POST(request: Request) {
   try {
     const auth = await requireAuth(request);
@@ -136,18 +141,27 @@ Seja direto, prático e use valores em R$.`;
     }
 
     // Parse do JSON da resposta
-    let analysis;
+    let raw: Record<string, unknown>;
     try {
-      analysis = JSON.parse(text);
+      raw = JSON.parse(text);
     } catch {
-      analysis = {
-        resumo: text.slice(0, 500),
-        pontos_atencao: [],
-        recomendacoes: [],
-        proximos_passos: [],
-        score_saude: 5,
-      };
+      // Se parse falha, tentar extrair JSON de dentro do texto
+      const innerMatch = text.match(/\{[\s\S]*\}/);
+      try {
+        raw = innerMatch ? JSON.parse(innerMatch[0]) : {};
+      } catch {
+        raw = {};
+      }
     }
+
+    // Normalizar campos — Gemini pode usar nomes com ou sem underscore
+    const analysis = {
+      resumo: String(raw.resumo || raw.resumo_geral || text.slice(0, 500) || ""),
+      pontos_atencao: toStringArray(raw.pontos_atencao || raw.pontos_de_atencao || raw.pontosAtencao || []),
+      recomendacoes: toStringArray(raw.recomendacoes || raw.recomendações || []),
+      proximos_passos: toStringArray(raw.proximos_passos || raw.próximos_passos || raw.proximosPassos || []),
+      score_saude: Number(raw.score_saude || raw.scoreSaude || raw.score || 5),
+    };
 
     return NextResponse.json({
       analysis,

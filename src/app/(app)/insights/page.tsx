@@ -64,6 +64,15 @@ export default function InsightsPage() {
         setError(json.error || "Erro ao gerar análise");
         return;
       }
+      // Garantir que arrays existem mesmo se API retornar incompleto
+      const a = json.analysis || {};
+      json.analysis = {
+        resumo: a.resumo || "",
+        pontos_atencao: Array.isArray(a.pontos_atencao) ? a.pontos_atencao : [],
+        recomendacoes: Array.isArray(a.recomendacoes) ? a.recomendacoes : [],
+        proximos_passos: Array.isArray(a.proximos_passos) ? a.proximos_passos : [],
+        score_saude: Number(a.score_saude) || 5,
+      };
       setData(json);
     } catch {
       setError("Erro de conexão");
