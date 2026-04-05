@@ -151,6 +151,7 @@ Responda APENAS com este JSON válido, sem nenhum texto antes ou depois, sem mar
       analysis,
       generatedAt: new Date().toISOString(),
       dataSnapshot: { saldo, receitaMensal, gastoTotal, creditoUsado, creditoLimite, investido },
+      categories: categoriesRows.map((c) => ({ category: String(c.category), total: num(c.total) })),
     });
 
   } catch (error) {

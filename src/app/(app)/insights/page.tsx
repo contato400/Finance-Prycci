@@ -9,8 +9,12 @@ import { usePlan } from "@/hooks/use-plan";
 import { apiFetch } from "@/lib/api-client";
 import { formatCurrency } from "@/lib/utils";
 import {
+  ResponsiveContainer, BarChart, Bar, XAxis, YAxis, Tooltip, Cell,
+  RadialBarChart, RadialBar,
+} from "recharts";
+import {
   Brain, Sparkles, AlertTriangle, Lightbulb, ArrowRight,
-  Activity, RefreshCw,
+  RefreshCw, Wallet, TrendingUp, TrendingDown, Scale, PiggyBank,
 } from "lucide-react";
 
 interface Analysis {
@@ -19,6 +23,11 @@ interface Analysis {
   recomendacoes: string[];
   proximos_passos: string[];
   score_saude: number;
+}
+
+interface CategoryData {
+  category: string;
+  total: number;
 }
 
 interface InsightsData {
@@ -32,21 +41,10 @@ interface InsightsData {
     creditoLimite: number;
     investido: number;
   };
+  categories: CategoryData[];
 }
 
-function ScoreBadge({ score }: { score: number }) {
-  const color = score >= 8 ? "text-emerald-400 bg-emerald-500/10" :
-                score >= 5 ? "text-yellow-400 bg-yellow-500/10" :
-                "text-red-400 bg-red-500/10";
-  const label = score >= 8 ? "Excelente" : score >= 6 ? "Boa" : score >= 4 ? "Regular" : "Atenção";
-  return (
-    <div className={`inline-flex items-center gap-2 rounded-full px-4 py-2 ${color}`}>
-      <Activity className="h-4 w-4" />
-      <span className="text-2xl font-bold">{score}</span>
-      <span className="text-sm">/10 — {label}</span>
-    </div>
-  );
-}
+const CHART_COLORS = ["#ef4444", "#f59e0b", "#3b82f6", "#8b5cf6", "#ec4899", "#14b8a6", "#f97316", "#6366f1"];
 
 export default function InsightsPage() {
   const { isPro, loading: planLoading } = usePlan();
@@ -64,7 +62,6 @@ export default function InsightsPage() {
         setError(json.error || "Erro ao gerar análise");
         return;
       }
-      // Garantir que arrays existem mesmo se API retornar incompleto
       const a = json.analysis || {};
       json.analysis = {
         resumo: a.resumo || "",
@@ -73,6 +70,7 @@ export default function InsightsPage() {
         proximos_passos: Array.isArray(a.proximos_passos) ? a.proximos_passos : [],
         score_saude: Number(a.score_saude) || 5,
       };
+      json.categories = Array.isArray(json.categories) ? json.categories : [];
       setData(json);
     } catch {
       setError("Erro de conexão");
@@ -80,6 +78,10 @@ export default function InsightsPage() {
       setLoading(false);
     }
   }
+
+  const snap = data?.dataSnapshot;
+  const saldoLiquido = snap ? snap.receitaMensal - snap.gastoTotal : 0;
+  const gastosPercent = snap && snap.receitaMensal > 0 ? Math.round((snap.gastoTotal / snap.receitaMensal) * 100) : 0;
 
   return (
     <div className="space-y-6">
@@ -111,12 +113,9 @@ export default function InsightsPage() {
 
       {loading && (
         <div className="space-y-4">
-          <Skeleton className="h-32 rounded-lg" />
-          <div className="grid gap-4 sm:grid-cols-2">
-            <Skeleton className="h-48 rounded-lg" />
-            <Skeleton className="h-48 rounded-lg" />
-          </div>
-          <Skeleton className="h-40 rounded-lg" />
+          <div className="grid gap-4 sm:grid-cols-5">{Array.from({ length: 5 }).map((_, i) => <Skeleton key={i} className="h-24 rounded-lg" />)}</div>
+          <Skeleton className="h-64 rounded-lg" />
+          <div className="grid gap-4 sm:grid-cols-2"><Skeleton className="h-48 rounded-lg" /><Skeleton className="h-48 rounded-lg" /></div>
         </div>
       )}
 
@@ -129,7 +128,7 @@ export default function InsightsPage() {
             </div>
             <h2 className="text-lg font-semibold text-white">Análise com IA</h2>
             <p className="mt-2 max-w-md text-center text-sm text-slate-400">
-              Clique em &quot;Gerar Análise&quot; para receber uma avaliação completa da sua saúde financeira com recomendações personalizadas.
+              Clique em &quot;Gerar Análise&quot; para receber uma avaliação completa da sua saúde financeira.
             </p>
           </CardContent>
         </Card>
@@ -137,21 +136,76 @@ export default function InsightsPage() {
 
       {data && !loading && (
         <>
-          {/* Score de saúde */}
-          <Card className="border-slate-800 bg-slate-900">
-            <CardContent className="flex flex-col items-center gap-4 py-8">
-              <p className="text-sm text-slate-400">Saúde Financeira</p>
-              <ScoreBadge score={data.analysis.score_saude} />
-              {data.dataSnapshot && (
-                <div className="flex flex-wrap justify-center gap-4 text-xs text-slate-500">
-                  <span>Saldo: {formatCurrency(data.dataSnapshot.saldo)}</span>
-                  <span>Receita: {formatCurrency(data.dataSnapshot.receitaMensal)}</span>
-                  <span>Gastos: {formatCurrency(data.dataSnapshot.gastoTotal)}</span>
-                  <span>Investido: {formatCurrency(data.dataSnapshot.investido)}</span>
-                </div>
-              )}
-            </CardContent>
-          </Card>
+          {/* 1. CARDS DE RESUMO */}
+          <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-5">
+            <SummaryCard icon={<Wallet className="h-5 w-5 text-emerald-400" />} label="Saldo em Conta" value={formatCurrency(snap?.saldo ?? 0)} color="text-white" />
+            <SummaryCard icon={<TrendingUp className="h-5 w-5 text-emerald-400" />} label="Receita Mensal" value={formatCurrency(snap?.receitaMensal ?? 0)} color="text-emerald-400" />
+            <SummaryCard
+              icon={<TrendingDown className="h-5 w-5 text-red-400" />}
+              label="Gastos Mensais"
+              value={formatCurrency(snap?.gastoTotal ?? 0)}
+              color="text-red-400"
+              alert={gastosPercent > 80}
+              sub={`${gastosPercent}% da receita`}
+            />
+            <SummaryCard
+              icon={<Scale className="h-5 w-5" />}
+              label="Saldo Líquido"
+              value={formatCurrency(saldoLiquido)}
+              color={saldoLiquido >= 0 ? "text-emerald-400" : "text-red-400"}
+            />
+            <SummaryCard icon={<PiggyBank className="h-5 w-5 text-blue-400" />} label="Investido" value={formatCurrency(snap?.investido ?? 0)} color="text-blue-400" />
+          </div>
+
+          {/* 2. GRÁFICOS: Distribuição + Score lado a lado */}
+          <div className="grid gap-4 lg:grid-cols-3">
+            {/* Gráfico de barras — gastos por categoria */}
+            {data.categories.length > 0 && (
+              <Card className="border-slate-800 bg-slate-900 lg:col-span-2">
+                <CardHeader><CardTitle className="text-sm text-white">Distribuição de Gastos</CardTitle></CardHeader>
+                <CardContent>
+                  <ResponsiveContainer width="100%" height={280}>
+                    <BarChart data={data.categories} layout="vertical" margin={{ left: 10, right: 20 }}>
+                      <XAxis type="number" hide />
+                      <YAxis type="category" dataKey="category" width={120} tick={{ fill: "#94a3b8", fontSize: 12 }} />
+                      <Tooltip
+                        contentStyle={{ backgroundColor: "#0f172a", border: "1px solid #1e293b", borderRadius: "8px", color: "#f8fafc" }}
+                        formatter={(v) => [formatCurrency(Number(v)), "Total"]}
+                      />
+                      <Bar dataKey="total" radius={[0, 4, 4, 0]}>
+                        {data.categories.map((_, i) => (
+                          <Cell key={i} fill={CHART_COLORS[i % CHART_COLORS.length]} />
+                        ))}
+                      </Bar>
+                    </BarChart>
+                  </ResponsiveContainer>
+                  <div className="mt-2 space-y-1">
+                    {data.categories.map((c, i) => {
+                      const pct = snap && snap.gastoTotal > 0 ? Math.round((c.total / snap.gastoTotal) * 100) : 0;
+                      return (
+                        <div key={i} className="flex items-center justify-between text-xs">
+                          <div className="flex items-center gap-2">
+                            <div className="h-2.5 w-2.5 rounded-full" style={{ backgroundColor: CHART_COLORS[i % CHART_COLORS.length] }} />
+                            <span className="text-slate-400">{c.category}</span>
+                          </div>
+                          <span className="text-slate-300">{formatCurrency(c.total)} <span className="text-slate-600">({pct}%)</span></span>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </CardContent>
+              </Card>
+            )}
+
+            {/* 3. Gauge de Score */}
+            <Card className="border-slate-800 bg-slate-900">
+              <CardHeader><CardTitle className="text-sm text-white">Saúde Financeira</CardTitle></CardHeader>
+              <CardContent className="flex flex-col items-center">
+                <ScoreGauge score={data.analysis.score_saude} />
+                <p className="mt-2 text-center text-xs text-slate-500">Baseado nos seus dados dos últimos 30 dias</p>
+              </CardContent>
+            </Card>
+          </div>
 
           {/* Resumo */}
           <Card className="border-slate-800 bg-slate-900">
@@ -166,9 +220,9 @@ export default function InsightsPage() {
             </CardContent>
           </Card>
 
+          {/* 4. Pontos de Atenção + Recomendações */}
           <div className="grid gap-4 sm:grid-cols-2">
-            {/* Pontos de Atenção */}
-            <Card className="border-slate-800 bg-slate-900">
+            <Card className="border-l-4 border-l-yellow-500 border-slate-800 bg-slate-900">
               <CardHeader>
                 <CardTitle className="flex items-center gap-2 text-white">
                   <AlertTriangle className="h-5 w-5 text-yellow-400" />
@@ -176,19 +230,18 @@ export default function InsightsPage() {
                 </CardTitle>
               </CardHeader>
               <CardContent>
-                <ul className="space-y-2">
+                <div className="space-y-3">
                   {data.analysis.pontos_atencao.map((item, i) => (
-                    <li key={i} className="flex items-start gap-2 text-sm text-slate-300">
-                      <span className="mt-1 h-1.5 w-1.5 shrink-0 rounded-full bg-yellow-400" />
-                      {item}
-                    </li>
+                    <div key={i} className="flex items-start gap-3 rounded-lg border border-yellow-500/10 bg-yellow-500/5 p-3">
+                      <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-yellow-500/20 text-xs font-bold text-yellow-400">{i + 1}</span>
+                      <p className="text-sm leading-relaxed text-slate-300">{item}</p>
+                    </div>
                   ))}
-                </ul>
+                </div>
               </CardContent>
             </Card>
 
-            {/* Recomendações */}
-            <Card className="border-slate-800 bg-slate-900">
+            <Card className="border-l-4 border-l-blue-500 border-slate-800 bg-slate-900">
               <CardHeader>
                 <CardTitle className="flex items-center gap-2 text-white">
                   <Lightbulb className="h-5 w-5 text-blue-400" />
@@ -196,20 +249,20 @@ export default function InsightsPage() {
                 </CardTitle>
               </CardHeader>
               <CardContent>
-                <ul className="space-y-2">
+                <div className="space-y-3">
                   {data.analysis.recomendacoes.map((item, i) => (
-                    <li key={i} className="flex items-start gap-2 text-sm text-slate-300">
-                      <span className="mt-1 h-1.5 w-1.5 shrink-0 rounded-full bg-blue-400" />
-                      {item}
-                    </li>
+                    <div key={i} className="flex items-start gap-3 rounded-lg border border-blue-500/10 bg-blue-500/5 p-3">
+                      <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-blue-500/20 text-xs font-bold text-blue-400">{i + 1}</span>
+                      <p className="text-sm leading-relaxed text-slate-300">{item}</p>
+                    </div>
                   ))}
-                </ul>
+                </div>
               </CardContent>
             </Card>
           </div>
 
           {/* Próximos Passos */}
-          <Card className="border-slate-800 bg-slate-900">
+          <Card className="border-l-4 border-l-emerald-500 border-slate-800 bg-slate-900">
             <CardHeader>
               <CardTitle className="flex items-center gap-2 text-white">
                 <ArrowRight className="h-5 w-5 text-emerald-400" />
@@ -217,16 +270,14 @@ export default function InsightsPage() {
               </CardTitle>
             </CardHeader>
             <CardContent>
-              <ol className="space-y-2">
+              <div className="grid gap-3 sm:grid-cols-3">
                 {data.analysis.proximos_passos.map((item, i) => (
-                  <li key={i} className="flex items-start gap-3 text-sm text-slate-300">
-                    <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-emerald-500/10 text-xs font-bold text-emerald-400">
-                      {i + 1}
-                    </span>
-                    {item}
-                  </li>
+                  <div key={i} className="flex items-start gap-3 rounded-lg border border-emerald-500/10 bg-emerald-500/5 p-4">
+                    <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-emerald-500/20 text-sm font-bold text-emerald-400">{i + 1}</span>
+                    <p className="text-sm leading-relaxed text-slate-300">{item}</p>
+                  </div>
                 ))}
-              </ol>
+              </div>
             </CardContent>
           </Card>
 
@@ -237,6 +288,43 @@ export default function InsightsPage() {
           )}
         </>
       )}
+    </div>
+  );
+}
+
+// --- Sub-components ---
+
+function SummaryCard({ icon, label, value, color = "text-white", alert = false, sub }: {
+  icon: React.ReactNode; label: string; value: string; color?: string; alert?: boolean; sub?: string;
+}) {
+  return (
+    <Card className={`border-slate-800 ${alert ? "bg-red-950/20 border-red-800" : "bg-slate-900"}`}>
+      <CardContent className="p-4">
+        <div className="flex items-center gap-2">{icon}<p className="text-xs text-slate-500">{label}</p></div>
+        <p className={`mt-1 text-xl font-bold ${color}`}>{value}</p>
+        {sub && <p className="text-[10px] text-slate-600">{sub}</p>}
+      </CardContent>
+    </Card>
+  );
+}
+
+function ScoreGauge({ score }: { score: number }) {
+  const color = score >= 8 ? "#10b981" : score >= 5 ? "#eab308" : "#ef4444";
+  const label = score >= 8 ? "Excelente" : score >= 5 ? "Boa" : "Atenção";
+  const gaugeData = [{ name: "score", value: score * 10, fill: color }];
+
+  return (
+    <div className="flex flex-col items-center">
+      <ResponsiveContainer width={180} height={180}>
+        <RadialBarChart cx="50%" cy="50%" innerRadius="70%" outerRadius="100%" startAngle={180} endAngle={0} data={gaugeData} barSize={14}>
+          <RadialBar dataKey="value" cornerRadius={10} background={{ fill: "#1e293b" }} />
+        </RadialBarChart>
+      </ResponsiveContainer>
+      <div className="-mt-16 text-center">
+        <span className="text-3xl font-bold text-white">{score}</span>
+        <span className="text-sm text-slate-400">/10</span>
+        <p className="text-xs" style={{ color }}>{label}</p>
+      </div>
     </div>
   );
 }
