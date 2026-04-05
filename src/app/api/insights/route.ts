@@ -100,6 +100,8 @@ Responda APENAS com este JSON válido, sem nenhum texto antes ou depois, sem mar
     const geminiData = await geminiRes.json();
     const parts = geminiData?.candidates?.[0]?.content?.parts || [];
 
+    console.log("GEMINI PARTS:", JSON.stringify(parts, null, 2));
+
     // Gemini 2.5 Flash retorna thinking + resposta — pegar todos os texts e encontrar o JSON
     let jsonText = "";
     for (const part of parts) {
@@ -112,6 +114,8 @@ Responda APENAS com este JSON válido, sem nenhum texto antes ou depois, sem mar
         }
       }
     }
+
+    console.log("JSON EXTRAIDO:", jsonText);
 
     // Se não achou com regex específico, tenta qualquer JSON
     if (!jsonText) {
