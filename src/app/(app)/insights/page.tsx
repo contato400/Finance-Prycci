@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useRef, useEffect } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -15,6 +15,7 @@ import {
 import {
   Brain, Sparkles, AlertTriangle, Lightbulb, ArrowRight,
   RefreshCw, Wallet, TrendingUp, TrendingDown, Scale, PiggyBank,
+  Send, MessageCircle, Bot, User,
 } from "lucide-react";
 
 interface Analysis {
@@ -281,6 +282,9 @@ export default function InsightsPage() {
             </CardContent>
           </Card>
 
+          {/* 5. Chat com IA Financeira */}
+          <ChatIA dataSnapshot={data.dataSnapshot} />
+
           {data.generatedAt && (
             <p className="text-center text-xs text-slate-600">
               Análise gerada em {new Intl.DateTimeFormat("pt-BR", { dateStyle: "short", timeStyle: "short" }).format(new Date(data.generatedAt))}
@@ -303,6 +307,113 @@ function SummaryCard({ icon, label, value, color = "text-white", alert = false, 
         <div className="flex items-center gap-2">{icon}<p className="text-xs text-slate-500">{label}</p></div>
         <p className={`mt-1 text-xl font-bold ${color}`}>{value}</p>
         {sub && <p className="text-[10px] text-slate-600">{sub}</p>}
+      </CardContent>
+    </Card>
+  );
+}
+
+interface ChatMessage {
+  role: "user" | "assistant";
+  content: string;
+}
+
+function ChatIA({ dataSnapshot }: { dataSnapshot: InsightsData["dataSnapshot"] }) {
+  const [messages, setMessages] = useState<ChatMessage[]>([
+    {
+      role: "assistant",
+      content: `Olá! Analisei suas finanças. Você tem receita de ${formatCurrency(dataSnapshot.receitaMensal)}, gastos de ${formatCurrency(dataSnapshot.gastoTotal)} e saldo de ${formatCurrency(dataSnapshot.saldo)}. Como posso te ajudar hoje?`,
+    },
+  ]);
+  const [input, setInput] = useState("");
+  const [sending, setSending] = useState(false);
+  const scrollRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight, behavior: "smooth" });
+  }, [messages]);
+
+  async function handleSend() {
+    const text = input.trim();
+    if (!text || sending) return;
+
+    const userMsg: ChatMessage = { role: "user", content: text };
+    setMessages((prev) => [...prev, userMsg]);
+    setInput("");
+    setSending(true);
+
+    try {
+      const history = messages.map((m) => ({ role: m.role === "user" ? "user" : "model", content: m.content }));
+      const res = await apiFetch("/api/insights/chat", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ message: text, history }),
+      });
+      const json = await res.json();
+      const reply = json.reply || json.error || "Erro ao processar.";
+      setMessages((prev) => [...prev, { role: "assistant", content: reply }]);
+    } catch {
+      setMessages((prev) => [...prev, { role: "assistant", content: "Erro de conexão. Tente novamente." }]);
+    } finally {
+      setSending(false);
+    }
+  }
+
+  return (
+    <Card className="border-slate-800 bg-slate-900">
+      <CardHeader>
+        <CardTitle className="flex items-center gap-2 text-white">
+          <MessageCircle className="h-5 w-5 text-emerald-400" />
+          Converse com sua IA Financeira
+        </CardTitle>
+      </CardHeader>
+      <CardContent>
+        <div ref={scrollRef} className="h-[400px] space-y-3 overflow-y-auto rounded-lg border border-slate-800 bg-slate-950 p-4">
+          {messages.map((msg, i) => (
+            <div key={i} className={`flex gap-2 ${msg.role === "user" ? "justify-end" : "justify-start"}`}>
+              {msg.role === "assistant" && (
+                <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-emerald-500/10">
+                  <Bot className="h-4 w-4 text-emerald-400" />
+                </div>
+              )}
+              <div className={`max-w-[80%] rounded-lg px-3 py-2 text-sm ${
+                msg.role === "user"
+                  ? "bg-emerald-500/20 text-emerald-100"
+                  : "bg-slate-800 text-slate-300"
+              }`}>
+                <p className="whitespace-pre-wrap leading-relaxed">{msg.content}</p>
+              </div>
+              {msg.role === "user" && (
+                <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-slate-700">
+                  <User className="h-4 w-4 text-slate-300" />
+                </div>
+              )}
+            </div>
+          ))}
+          {sending && (
+            <div className="flex items-center gap-2">
+              <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-emerald-500/10">
+                <Bot className="h-4 w-4 text-emerald-400" />
+              </div>
+              <div className="rounded-lg bg-slate-800 px-3 py-2">
+                <RefreshCw className="h-4 w-4 animate-spin text-slate-400" />
+              </div>
+            </div>
+          )}
+        </div>
+        <div className="mt-3 flex gap-2">
+          <input
+            type="text"
+            value={input}
+            onChange={(e) => setInput(e.target.value)}
+            onKeyDown={(e) => e.key === "Enter" && !e.shiftKey && handleSend()}
+            placeholder="Pergunte sobre suas finanças..."
+            disabled={sending}
+            className="flex-1 rounded-lg border border-slate-700 bg-slate-800 px-4 py-2.5 text-sm text-white placeholder:text-slate-500 focus:border-emerald-500 focus:outline-none disabled:opacity-50"
+          />
+          <Button onClick={handleSend} disabled={sending || !input.trim()} size="sm" className="gap-1 bg-emerald-500 px-4 text-slate-950 hover:bg-emerald-400">
+            <Send className="h-4 w-4" />
+          </Button>
+        </div>
       </CardContent>
     </Card>
   );

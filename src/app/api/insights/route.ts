@@ -48,8 +48,26 @@ export async function POST(request: Request) {
     const bancos = banksRows.map((b) => b.institution_name).join(", ");
     const gastoTotal = categoriesRows.reduce((s, c) => s + num(c.total), 0);
 
+    // Traduzir categorias para português
+    const categoriasPT: Record<string, string> = {
+      "Transfers": "Transferências", "Transfer": "Transferência",
+      "Credit card payment": "Pagamento Cartão", "Investments": "Investimentos",
+      "Transfer - Bank Slip": "Boleto Bancário", "Bank slip": "Boleto",
+      "Same person transfer": "Transferência Própria", "Shopping": "Compras",
+      "Groceries": "Mercado/Alimentação", "Transfer - PIX": "PIX",
+      "Food and Drink": "Alimentação", "Food and drinks": "Alimentação",
+      "Food delivery": "Delivery", "Transport": "Transporte",
+      "Transportation": "Transporte", "Health": "Saúde",
+      "Education": "Educação", "Entertainment": "Entretenimento",
+      "Others": "Outros", "Other": "Outros",
+      "Digital services": "Serviços Digitais", "Subscription": "Assinatura",
+      "Taxi and ride-hailing": "Transporte (app)",
+      "Hospital clinics and labs": "Saúde", "Supermarket": "Supermercado",
+    };
+    const traduzirCategoria = (cat: string): string => categoriasPT[cat] || cat;
+
     const gastosPorCategoria = categoriesRows
-      .map((c) => `- ${c.category}: R$ ${num(c.total).toFixed(2)}`)
+      .map((c) => `- ${traduzirCategoria(String(c.category))}: R$ ${num(c.total).toFixed(2)}`)
       .join("\n");
 
     const maioresGastos = topExpensesRows
@@ -151,7 +169,7 @@ Responda APENAS com este JSON válido, sem nenhum texto antes ou depois, sem mar
       analysis,
       generatedAt: new Date().toISOString(),
       dataSnapshot: { saldo, receitaMensal, gastoTotal, creditoUsado, creditoLimite, investido },
-      categories: categoriesRows.map((c) => ({ category: String(c.category), total: num(c.total) })),
+      categories: categoriesRows.map((c) => ({ category: traduzirCategoria(String(c.category)), total: num(c.total) })),
     });
 
   } catch (error) {
