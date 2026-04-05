@@ -86,7 +86,8 @@ Responda APENAS com este JSON válido, sem nenhum texto antes ou depois, sem mar
         contents: [{ parts: [{ text: prompt }] }],
         generationConfig: {
           temperature: 0.4,
-          maxOutputTokens: 2048,
+          maxOutputTokens: 8192,
+          responseMimeType: "application/json",
         },
       }),
     });
