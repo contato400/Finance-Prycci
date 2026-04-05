@@ -10,6 +10,16 @@ function num(v: unknown): number {
   return isNaN(n) ? 0 : n;
 }
 
+const infosBancos: Record<string, string> = {
+  "Nubank": "Banco digital, sem tarifas, cartão de crédito com limite flexível, taxa do rotativo ~17% ao mês, Nubank Invest com CDB 100% CDI",
+  "Banco Inter": "Banco digital completo, conta sem tarifas, cartão de crédito, investimentos CDB/fundos, taxa do rotativo ~15% ao mês, Inter Invest",
+  "Caixa Econômica Federal": "Banco público, forte em financiamento imobiliário (menor taxa do mercado ~8-9% aa), FGTS, Poupança, crédito consignado ~1.8% ao mês",
+  "Nubank Empresas": "Conta PJ Nubank, sem tarifas mensais, cartão PJ, limite separado da conta pessoal",
+  "Bradesco": "Banco tradicional, tarifas mensais, ampla rede de agências, crédito pessoal ~4-6% ao mês",
+  "Itaú": "Banco tradicional, tarifas mensais, produtos premium, crédito pessoal ~3-5% ao mês",
+  "Santander": "Banco espanhol com operações no Brasil, tarifas mensais, crédito pessoal ~4-6% ao mês",
+};
+
 export async function POST(request: Request) {
   try {
     const auth = await requireAuth(request);
@@ -30,8 +40,7 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: "Mensagem vazia" }, { status: 400 });
     }
 
-    // Buscar dados financeiros do usuário
-    const [balanceRow, creditRow, investRow, categoriesRows, topExpensesRows, incomeRow, banksRows] = await Promise.all([
+    const [balanceRow, creditRow, investRow, categoriesRows, topExpensesRows, incomeRow, banksRows, historicoRows] = await Promise.all([
       sql`SELECT COALESCE(SUM(balance), 0)::float AS total FROM accounts WHERE user_id = ${userId} AND type NOT IN ('CREDIT','CREDIT_CARD')`,
       sql`SELECT COALESCE(SUM(ABS(balance)), 0)::float AS used, COALESCE(SUM(COALESCE(credit_limit, 0)), 0)::float AS lim FROM accounts WHERE user_id = ${userId} AND type IN ('CREDIT','CREDIT_CARD')`,
       sql`SELECT COALESCE(SUM(balance), 0)::float AS total, COUNT(*)::int AS count FROM investments WHERE user_id = ${userId}`,
@@ -39,6 +48,11 @@ export async function POST(request: Request) {
       sql`SELECT description, ABS(amount)::float AS valor, date::text AS date FROM transactions WHERE user_id = ${userId} AND amount < 0 AND date >= NOW() - INTERVAL '30 days' ORDER BY ABS(amount) DESC LIMIT 5`,
       sql`SELECT COALESCE(SUM(amount), 0)::float AS total FROM transactions WHERE user_id = ${userId} AND amount > 0 AND date >= NOW() - INTERVAL '30 days'`,
       sql`SELECT institution_name FROM pluggy_items WHERE user_id = ${userId}`,
+      sql`SELECT TO_CHAR(DATE_TRUNC('month', date), 'YYYY-MM') AS mes,
+             COALESCE(SUM(CASE WHEN amount > 0 THEN amount ELSE 0 END), 0)::float AS receita,
+             COALESCE(SUM(CASE WHEN amount < 0 THEN ABS(amount) ELSE 0 END), 0)::float AS gastos
+           FROM transactions WHERE user_id = ${userId} AND date >= NOW() - INTERVAL '90 days'
+           GROUP BY mes ORDER BY mes`,
     ]);
 
     const saldo = num(balanceRow[0]?.total);
@@ -47,10 +61,9 @@ export async function POST(request: Request) {
     const investido = num(investRow[0]?.total);
     const receitaMensal = num(incomeRow[0]?.total);
     const gastoTotal = categoriesRows.reduce((s, c) => s + num(c.total), 0);
-    const bancos = banksRows.map((b) => b.institution_name).join(", ");
-
     const saldoLiquido = receitaMensal - gastoTotal;
     const percentualCredito = creditoLimite > 0 ? ((creditoUsado / creditoLimite) * 100).toFixed(0) : "0";
+    const bancos = banksRows.map((b) => b.institution_name).join(", ");
 
     const gastosPorCategoria = categoriesRows
       .map((c) => `- ${c.category}: R$ ${num(c.total).toFixed(2)}`)
@@ -58,6 +71,14 @@ export async function POST(request: Request) {
 
     const maioresGastos = topExpensesRows
       .map((t) => `- ${t.description}: R$ ${num(t.valor).toFixed(2)} (${t.date})`)
+      .join("\n");
+
+    const historicoMensal = historicoRows
+      .map((h) => `- ${h.mes}: Receita R$ ${num(h.receita).toFixed(2)} | Gastos R$ ${num(h.gastos).toFixed(2)}`)
+      .join("\n");
+
+    const bancosInfo = banksRows
+      .map((b) => `- ${b.institution_name}: ${infosBancos[String(b.institution_name)] || "banco conectado"}`)
       .join("\n");
 
     const systemPrompt = `Você é um consultor financeiro pessoal especialista, integrado ao app Prycci Finance. Você tem acesso COMPLETO aos dados financeiros reais do usuário e deve usá-los em TODAS as respostas.
@@ -71,11 +92,17 @@ DADOS FINANCEIROS REAIS DO USUÁRIO (últimos 30 dias):
 - Total investido: R$ ${investido.toFixed(2)}
 - Bancos conectados: ${bancos || "nenhum"}
 
+HISTÓRICO MENSAL (3 meses):
+${historicoMensal || "Sem histórico"}
+
 GASTOS POR CATEGORIA:
 ${gastosPorCategoria || "Sem dados"}
 
 MAIORES TRANSAÇÕES INDIVIDUAIS:
 ${maioresGastos || "Sem dados"}
+
+BANCOS DO USUÁRIO E SUAS CARACTERÍSTICAS:
+${bancosInfo || "Nenhum banco"}
 
 REGRAS DE COMPORTAMENTO:
 1. Sempre responda em português brasileiro
@@ -93,22 +120,19 @@ REGRAS DE COMPORTAMENTO:
 7. Se perguntarem sobre os últimos 7, 15 ou 30 dias, use os dados de transações disponíveis para dar uma resposta contextualizada
 8. Aponte sempre oportunidades de melhoria baseadas nos dados reais
 9. Nunca invente dados — use apenas o que está nos dados acima
-10. Seja como um consultor da XP ou BTG: profissional, direto e embasado`;
+10. Seja como um consultor da XP ou BTG: profissional, direto e embasado
+11. Nunca use markdown (negrito, itálico, headers). Responda em texto limpo, parágrafos simples.`;
 
-    // Montar histórico para Gemini
     const contents = [];
-
-    // System prompt como primeira mensagem do usuário
     contents.push({
       role: "user",
-      parts: [{ text: systemPrompt + "\n\nResponda 'Entendido' para confirmar que recebeu os dados." }],
+      parts: [{ text: systemPrompt + "\n\nResponda 'Entendido' para confirmar." }],
     });
     contents.push({
       role: "model",
-      parts: [{ text: "Entendido. Tenho acesso aos seus dados financeiros atuais. Como posso ajudar?" }],
+      parts: [{ text: "Entendido. Tenho acesso aos seus dados financeiros completos. Como posso ajudar?" }],
     });
 
-    // Histórico anterior
     for (const msg of (history || [])) {
       contents.push({
         role: msg.role === "user" ? "user" : "model",
@@ -116,11 +140,7 @@ REGRAS DE COMPORTAMENTO:
       });
     }
 
-    // Mensagem atual
-    contents.push({
-      role: "user",
-      parts: [{ text: message }],
-    });
+    contents.push({ role: "user", parts: [{ text: message }] });
 
     const geminiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${apiKey}`;
     const geminiRes = await fetch(geminiUrl, {
@@ -128,32 +148,26 @@ REGRAS DE COMPORTAMENTO:
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
         contents,
-        generationConfig: {
-          temperature: 0.7,
-          maxOutputTokens: 1024,
-          responseMimeType: "text/plain",
-        },
+        generationConfig: { temperature: 0.7, maxOutputTokens: 1024, responseMimeType: "text/plain" },
       }),
     });
 
     if (!geminiRes.ok) {
-      const errBody = await geminiRes.text();
-      console.error("Gemini chat error:", geminiRes.status, errBody);
       return NextResponse.json({ error: `Erro na IA: ${geminiRes.status}` }, { status: 500 });
     }
 
     const geminiData = await geminiRes.json();
     const parts = geminiData?.candidates?.[0]?.content?.parts || [];
-    const reply = parts.map((p: { text?: string }) => p.text || "").join("").trim();
+    let reply = parts.map((p: { text?: string }) => p.text || "").join("").trim();
+
+    // Limpar markdown
+    reply = reply.replace(/\*\*/g, "").replace(/\*/g, "").replace(/^#+\s*/gm, "");
 
     return NextResponse.json({
       reply: reply || "Desculpe, não consegui gerar uma resposta. Tente novamente.",
-      dataSnapshot: { saldo, receitaMensal, gastoTotal, investido },
     });
   } catch (error) {
     console.error("Chat error:", error);
-    return NextResponse.json({
-      error: error instanceof Error ? error.message : "Erro no chat",
-    }, { status: 500 });
+    return NextResponse.json({ error: error instanceof Error ? error.message : "Erro no chat" }, { status: 500 });
   }
 }
