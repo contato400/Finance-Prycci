@@ -14,7 +14,7 @@ import {
 } from "recharts";
 import {
   Brain, Sparkles, AlertTriangle, Lightbulb, ArrowRight,
-  RefreshCw, Wallet, TrendingUp, TrendingDown, Scale, PiggyBank,
+  RefreshCw, TrendingUp, TrendingDown,
   Send, MessageCircle, Bot, User,
 } from "lucide-react";
 
@@ -137,25 +137,32 @@ export default function InsightsPage() {
 
       {data && !loading && (
         <>
-          {/* 1. CARDS DE RESUMO */}
-          <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-5">
-            <SummaryCard icon={<Wallet className="h-5 w-5 text-emerald-400" />} label="Saldo em Conta" value={formatCurrency(snap?.saldo ?? 0)} color="text-white" />
-            <SummaryCard icon={<TrendingUp className="h-5 w-5 text-emerald-400" />} label="Receita Mensal" value={formatCurrency(snap?.receitaMensal ?? 0)} color="text-emerald-400" />
-            <SummaryCard
-              icon={<TrendingDown className="h-5 w-5 text-red-400" />}
-              label="Gastos Mensais"
-              value={formatCurrency(snap?.gastoTotal ?? 0)}
-              color="text-red-400"
-              alert={gastosPercent > 80}
-              sub={`${gastosPercent}% da receita`}
-            />
-            <SummaryCard
-              icon={<Scale className="h-5 w-5" />}
-              label="Saldo Líquido"
-              value={formatCurrency(saldoLiquido)}
-              color={saldoLiquido >= 0 ? "text-emerald-400" : "text-red-400"}
-            />
-            <SummaryCard icon={<PiggyBank className="h-5 w-5 text-blue-400" />} label="Investido" value={formatCurrency(snap?.investido ?? 0)} color="text-blue-400" />
+          {/* 1. BARRA DE RESUMO */}
+          <div className="flex flex-wrap items-center gap-x-6 gap-y-2 rounded-lg border border-slate-800 bg-slate-900 px-5 py-3">
+            <div className="flex items-center gap-2">
+              <TrendingUp className="h-4 w-4 text-emerald-400" />
+              <span className="text-xs text-slate-500">Receita</span>
+              <span className="text-sm font-bold text-emerald-400">{formatCurrency(snap?.receitaMensal ?? 0)}</span>
+            </div>
+            <div className="h-4 w-px bg-slate-700" />
+            <div className="flex items-center gap-2">
+              <TrendingDown className="h-4 w-4 text-red-400" />
+              <span className="text-xs text-slate-500">Gastos</span>
+              <span className="text-sm font-bold text-red-400">{formatCurrency(snap?.gastoTotal ?? 0)}</span>
+              <span className="text-[10px] text-slate-600">({gastosPercent}%)</span>
+            </div>
+            <div className="h-4 w-px bg-slate-700" />
+            <div className="flex items-center gap-2">
+              <div className={`h-2 w-2 rounded-full ${saldoLiquido >= 0 ? "bg-emerald-400" : "bg-red-400"}`} />
+              <span className="text-xs text-slate-500">Líquido</span>
+              <span className={`text-sm font-bold ${saldoLiquido >= 0 ? "text-emerald-400" : "text-red-400"}`}>{formatCurrency(saldoLiquido)}</span>
+            </div>
+            <div className="h-4 w-px bg-slate-700" />
+            <div className="flex items-center gap-2">
+              <span className="text-xs text-slate-500">Crédito</span>
+              <span className="text-sm font-bold text-white">{formatCurrency(snap?.creditoUsado ?? 0)}</span>
+              <span className="text-[10px] text-slate-600">de {formatCurrency(snap?.creditoLimite ?? 0)}</span>
+            </div>
           </div>
 
           {/* 2. GRÁFICOS: Distribuição + Score lado a lado */}
@@ -297,20 +304,6 @@ export default function InsightsPage() {
 }
 
 // --- Sub-components ---
-
-function SummaryCard({ icon, label, value, color = "text-white", alert = false, sub }: {
-  icon: React.ReactNode; label: string; value: string; color?: string; alert?: boolean; sub?: string;
-}) {
-  return (
-    <Card className={`border-slate-800 ${alert ? "bg-red-950/20 border-red-800" : "bg-slate-900"}`}>
-      <CardContent className="p-4">
-        <div className="flex items-center gap-2">{icon}<p className="text-xs text-slate-500">{label}</p></div>
-        <p className={`mt-1 text-xl font-bold ${color}`}>{value}</p>
-        {sub && <p className="text-[10px] text-slate-600">{sub}</p>}
-      </CardContent>
-    </Card>
-  );
-}
 
 interface ChatMessage {
   role: "user" | "assistant";
