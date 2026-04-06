@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import type { NextRequest } from "next/server";
 
 // Rotas que NÃO precisam de autenticação
-const publicApiPaths = ["/api/debug-env", "/api/debug-auth"];
+const publicApiPaths = ["/api/debug-env", "/api/debug-auth", "/api/setup-tables"];
 
 export async function middleware(request: NextRequest) {
   const { pathname } = request.nextUrl;
