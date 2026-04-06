@@ -54,7 +54,7 @@ export async function POST(request: Request) {
            FROM transactions WHERE user_id = ${userId} AND date >= NOW() - INTERVAL '90 days' GROUP BY mes ORDER BY mes`,
       sql`SELECT type, content FROM ai_memory WHERE user_id = ${userId} ORDER BY updated_at DESC LIMIT 20`,
       sql`SELECT role, content FROM ai_chat_history WHERE user_id = ${userId} ORDER BY created_at DESC LIMIT 20`,
-      sql`SELECT institution_name, name, outstanding_balance::float, installment_amount::float, total_installments, paid_installments, interest_rate::float FROM loans WHERE user_id = ${userId}`,
+      sql`SELECT l.institution_name, l.name, l.outstanding_balance::float, l.installment_amount::float, l.total_installments, l.paid_installments, l.interest_rate::float FROM loans l JOIN pluggy_items pi ON l.item_id = pi.id WHERE pi.user_id = ${userId}`,
     ]);
 
     const saldo = num(balanceRow[0]?.total);

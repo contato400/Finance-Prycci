@@ -243,6 +243,7 @@ async function syncLoans(pluggy: Pluggy, dbItem: { id: string; item_id: string }
   try {
     const { results: loans } = await pluggy.fetchLoans(dbItem.item_id);
     log(`  ${loans.length} loans`);
+    if (loans.length > 0) console.log("LOANS RAW:", JSON.stringify(loans.slice(0, 3), null, 2));
     for (const loan of loans) {
       await sql`INSERT INTO loans (item_id, pluggy_loan_id, institution_name, name, total_amount, installment_amount, total_installments, paid_installments, outstanding_balance, interest_rate, updated_at)
         VALUES (${dbItem.id}::uuid, ${loan.id}, ${institutionName}, ${loan.productName}, ${loan.contractAmount || 0}, ${0},

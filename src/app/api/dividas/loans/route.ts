@@ -11,9 +11,12 @@ export async function GET(request: Request) {
     const { userId } = auth;
 
     const loans = await sql`
-      SELECT id, institution_name, name, total_amount::float, installment_amount::float,
-             total_installments, paid_installments, outstanding_balance::float, interest_rate::float, updated_at
-      FROM loans WHERE user_id = ${userId} ORDER BY outstanding_balance DESC`;
+      SELECT l.id, l.institution_name, l.name, l.total_amount::float, l.installment_amount::float,
+             l.total_installments, l.paid_installments, l.outstanding_balance::float, l.interest_rate::float, l.updated_at
+      FROM loans l
+      JOIN pluggy_items pi ON l.item_id = pi.id
+      WHERE pi.user_id = ${userId}
+      ORDER BY l.outstanding_balance DESC`;
 
     const totalDevedor = loans.reduce((s, l) => s + (Number(l.outstanding_balance) || 0), 0);
 
