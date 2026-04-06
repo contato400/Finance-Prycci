@@ -38,6 +38,26 @@ export async function GET() {
     await sql.unsafe(`CREATE INDEX IF NOT EXISTS idx_ai_chat_history_user ON ai_chat_history(user_id, created_at DESC)`);
     results.push("idx_ai_chat_history_user: criado");
 
+    await sql.unsafe(`
+      CREATE TABLE IF NOT EXISTS bills (
+        id SERIAL PRIMARY KEY,
+        user_id TEXT NOT NULL,
+        item_id UUID,
+        pluggy_bill_id TEXT UNIQUE,
+        institution_name TEXT,
+        description TEXT,
+        amount FLOAT,
+        due_date DATE,
+        status TEXT DEFAULT 'PENDING',
+        bar_code TEXT,
+        updated_at TIMESTAMPTZ DEFAULT NOW()
+      )
+    `);
+    results.push("bills: criada");
+
+    await sql.unsafe(`CREATE INDEX IF NOT EXISTS idx_bills_user ON bills(user_id)`);
+    results.push("idx_bills_user: criado");
+
     // Verificar
     const tables = await sql`
       SELECT table_name FROM information_schema.tables

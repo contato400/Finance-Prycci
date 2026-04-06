@@ -55,7 +55,7 @@ export async function POST(request: Request) {
 
     log(`${savedItems.length} item(s)`);
     const pluggy = createPluggyClient();
-    const results = { itemsFound: savedItems.length, itemsSynced: 0, bankAccounts: 0, creditAccounts: 0, creditCards: 0, transactions: 0, investments: 0, loans: 0 };
+    const results = { itemsFound: savedItems.length, itemsSynced: 0, bankAccounts: 0, creditAccounts: 0, creditCards: 0, transactions: 0, investments: 0, loans: 0, bills: 0 };
     const itemErrors: Array<{ itemId: string; institution: string; error: string }> = [];
 
     // Processar items em paralelo
@@ -85,14 +85,15 @@ export async function POST(request: Request) {
         await sql`UPDATE pluggy_items SET status = ${item.status}, institution_name = ${institutionName} WHERE id = ${dbItem.id}::uuid`;
 
         const acct = await syncAccounts(pluggy, dbItem, institutionName, userId, log);
-        const [txCount, invCount, loanCount] = await Promise.all([
+        const [txCount, invCount, loanCount, billCount] = await Promise.all([
           syncTransactions(pluggy, dbItem, userId, log),
           syncInvestments(pluggy, dbItem, userId, log),
           syncLoans(pluggy, dbItem, institutionName, userId, log),
+          syncBills(pluggy, dbItem, institutionName, userId, log),
         ]);
 
         log(`  OK: ${acct.bankAccounts}bank ${acct.creditAccounts}credit ${txCount}tx`);
-        return { ok: true as const, ...acct, transactions: txCount, investments: invCount, loans: loanCount };
+        return { ok: true as const, ...acct, transactions: txCount, investments: invCount, loans: loanCount, bills: billCount };
       } catch (err) {
         const msg = err instanceof Error ? err.message : String(err);
         log(`  ERRO ${dbItem.institution_name}: ${msg}`);
@@ -111,6 +112,7 @@ export async function POST(request: Request) {
         results.transactions += r.transactions;
         results.investments += r.investments;
         results.loans += r.loans;
+        results.bills += r.bills;
       }
     }
 
@@ -252,5 +254,23 @@ async function syncLoans(pluggy: Pluggy, dbItem: { id: string; item_id: string }
       count++;
     }
   } catch (e) { log(`  Loans indisponível: ${e instanceof Error ? e.message : String(e)}`); }
+  return count;
+}
+
+async function syncBills(pluggy: Pluggy, dbItem: { id: string; item_id: string }, institutionName: string, userId: string, log: LogFn) {
+  let count = 0;
+  try {
+    // @ts-expect-error — fetchBills pode não existir em todas as versões do SDK
+    if (typeof pluggy.fetchBills !== "function") { log("  Bills: método não disponível"); return 0; }
+    // @ts-expect-error — fetchBills não tipado no SDK atual
+    const { results: bills } = await pluggy.fetchBills(dbItem.item_id);
+    log(`  ${bills.length} bills`);
+    for (const bill of bills) {
+      await sql`INSERT INTO bills (user_id, item_id, pluggy_bill_id, institution_name, description, amount, due_date, status, updated_at)
+        VALUES (${userId}, ${dbItem.id}::uuid, ${bill.id}, ${institutionName}, ${bill.description || bill.name || "Boleto"}, ${bill.amount || 0}, ${bill.dueDate || null}, ${bill.status || "PENDING"}, now())
+        ON CONFLICT (pluggy_bill_id) DO UPDATE SET description = EXCLUDED.description, amount = EXCLUDED.amount, due_date = EXCLUDED.due_date, status = EXCLUDED.status, updated_at = now()`;
+      count++;
+    }
+  } catch (e) { log(`  Bills indisponível: ${e instanceof Error ? e.message : String(e)}`); }
   return count;
 }

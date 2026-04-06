@@ -39,7 +39,7 @@ export async function POST(request: Request) {
     // Buscar dados financeiros + memória + histórico + transações detalhadas
     const [
       balanceRow, creditRow, investRow, categoriesRows, transacoesRows,
-      incomeRow, banksRows, historicoRows, memorias, chatHistory,
+      incomeRow, banksRows, historicoRows, memorias, chatHistory, loansRows,
     ] = await Promise.all([
       sql`SELECT COALESCE(SUM(balance), 0)::float AS total FROM accounts WHERE user_id = ${userId} AND type NOT IN ('CREDIT','CREDIT_CARD')`,
       sql`SELECT COALESCE(SUM(ABS(balance)), 0)::float AS used, COALESCE(SUM(COALESCE(credit_limit, 0)), 0)::float AS lim FROM accounts WHERE user_id = ${userId} AND type IN ('CREDIT','CREDIT_CARD')`,
@@ -54,6 +54,7 @@ export async function POST(request: Request) {
            FROM transactions WHERE user_id = ${userId} AND date >= NOW() - INTERVAL '90 days' GROUP BY mes ORDER BY mes`,
       sql`SELECT type, content FROM ai_memory WHERE user_id = ${userId} ORDER BY updated_at DESC LIMIT 20`,
       sql`SELECT role, content FROM ai_chat_history WHERE user_id = ${userId} ORDER BY created_at DESC LIMIT 20`,
+      sql`SELECT institution_name, name, outstanding_balance::float, installment_amount::float, total_installments, paid_installments, interest_rate::float FROM loans WHERE user_id = ${userId}`,
     ]);
 
     const saldo = num(balanceRow[0]?.total);
@@ -68,6 +69,9 @@ export async function POST(request: Request) {
     const gastosCat = categoriesRows.map((c) => `- ${c.category}: R$ ${num(c.total).toFixed(2)}`).join("\n");
     const histMensal = historicoRows.map((h) => `- ${h.mes}: Receita R$ ${num(h.receita).toFixed(2)} | Gastos R$ ${num(h.gastos).toFixed(2)}`).join("\n");
     const bancosInfo = banksRows.map((b) => `- ${b.institution_name}: ${infosBancos[String(b.institution_name)] || "banco conectado"}`).join("\n");
+    const loansInfo = loansRows.length > 0
+      ? loansRows.map((l) => `- ${l.institution_name}: ${l.name} | Saldo devedor: R$ ${num(l.outstanding_balance).toFixed(2)} | Parcela: R$ ${num(l.installment_amount).toFixed(2)} | ${l.paid_installments}/${l.total_installments} pagas | Taxa: ${num(l.interest_rate)}%`).join("\n")
+      : "Nenhum empréstimo encontrado";
     const memoriasStr = memorias.length > 0
       ? memorias.map((m) => `[${m.type}] ${m.content}`).join("\n")
       : "Nenhuma memória ainda — primeira interação.";
@@ -90,6 +94,9 @@ ${gastosCat || "Sem dados"}
 
 BANCOS:
 ${bancosInfo || "Nenhum"}
+
+EMPRÉSTIMOS E FINANCIAMENTOS ATIVOS:
+${loansInfo}
 
 TRANSAÇÕES DETALHADAS (últimos 90 dias):
 ${listaTransacoes || "Sem transações"}

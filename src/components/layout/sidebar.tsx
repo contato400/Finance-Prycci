@@ -12,6 +12,7 @@ import {
   Menu,
   X,
   UserCircle,
+  FileText,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
@@ -23,6 +24,7 @@ const navItems = [
   { href: "/contas", label: "Contas", icon: Landmark },
   { href: "/cartoes", label: "Cartões", icon: CreditCard },
   { href: "/credito", label: "Crédito", icon: BarChart3 },
+  { href: "/dividas", label: "Dívidas", icon: FileText },
   { href: "/investimentos", label: "Investimentos", icon: TrendingUp },
   { href: "/insights", label: "Insights", icon: Brain },
   { href: "/perfil", label: "Perfil", icon: UserCircle },
