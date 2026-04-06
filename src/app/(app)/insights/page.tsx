@@ -227,6 +227,7 @@ function ChatIA({ dataSnapshot }: { dataSnapshot: InsightsData["dataSnapshot"] }
   const [messages, setMessages] = useState<ChatMessage[]>([
     { role: "assistant", content: `Olá! Analisei suas finanças. Você tem receita de ${formatCurrency(dataSnapshot.receitaMensal)}, gastos de ${formatCurrency(dataSnapshot.gastoTotal)} e saldo de ${formatCurrency(dataSnapshot.saldo)}. Como posso te ajudar?` },
   ]);
+  const [memoryCount, setMemoryCount] = useState(0);
   const [input, setInput] = useState("");
   const [sending, setSending] = useState(false);
   const scrollRef = useRef<HTMLDivElement>(null);
@@ -235,6 +236,10 @@ function ChatIA({ dataSnapshot }: { dataSnapshot: InsightsData["dataSnapshot"] }
     scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight, behavior: "smooth" });
   }, [messages]);
 
+  useEffect(() => {
+    apiFetch("/api/insights/memory").then((r) => r.json()).then((d) => setMemoryCount(d.count || 0)).catch(() => {});
+  }, []);
+
   async function handleSend() {
     const text = input.trim();
     if (!text || sending) return;
@@ -242,11 +247,10 @@ function ChatIA({ dataSnapshot }: { dataSnapshot: InsightsData["dataSnapshot"] }
     setInput("");
     setSending(true);
     try {
-      const history = messages.map((m) => ({ role: m.role === "user" ? "user" : "model", content: m.content }));
       const res = await apiFetch("/api/insights/chat", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ message: text, history }),
+        body: JSON.stringify({ message: text }),
       });
       const json = await res.json();
       setMessages((prev) => [...prev, { role: "assistant", content: json.reply || json.error || "Erro." }]);
@@ -262,6 +266,9 @@ function ChatIA({ dataSnapshot }: { dataSnapshot: InsightsData["dataSnapshot"] }
           <MessageCircle className="h-5 w-5 text-emerald-400" />
           Converse com sua IA Financeira
         </CardTitle>
+        {memoryCount > 0 && (
+          <p className="text-xs text-slate-500">Sua IA lembra de {memoryCount} comportamento{memoryCount !== 1 ? "s" : ""} seu{memoryCount !== 1 ? "s" : ""}</p>
+        )}
       </CardHeader>
       <CardContent>
         <div ref={scrollRef} className="h-[400px] space-y-3 overflow-y-auto rounded-lg border border-slate-800 bg-slate-950 p-4">

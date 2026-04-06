@@ -51,7 +51,7 @@ export async function POST(request: Request) {
 
     const [
       balanceRow, creditRow, investRow, categoriesRows,
-      topExpensesRows, incomeRow, banksRows, historicoRows,
+      topExpensesRows, incomeRow, banksRows, historicoRows, memorias,
     ] = await Promise.all([
       sql`SELECT COALESCE(SUM(balance), 0)::float AS total FROM accounts WHERE user_id = ${userId} AND type NOT IN ('CREDIT','CREDIT_CARD')`,
       sql`SELECT COALESCE(SUM(ABS(balance)), 0)::float AS used, COALESCE(SUM(COALESCE(credit_limit, 0)), 0)::float AS lim FROM accounts WHERE user_id = ${userId} AND type IN ('CREDIT','CREDIT_CARD')`,
@@ -65,6 +65,7 @@ export async function POST(request: Request) {
              COALESCE(SUM(CASE WHEN amount < 0 THEN ABS(amount) ELSE 0 END), 0)::float AS gastos
            FROM transactions WHERE user_id = ${userId} AND date >= NOW() - INTERVAL '90 days'
            GROUP BY mes ORDER BY mes`,
+      sql`SELECT type, content FROM ai_memory WHERE user_id = ${userId} ORDER BY updated_at DESC LIMIT 20`,
     ]);
 
     const saldo = num(balanceRow[0]?.total);
@@ -92,6 +93,10 @@ export async function POST(request: Request) {
       .map((b) => `- ${b.institution_name}: ${infosBancos[String(b.institution_name)] || "banco conectado"}`)
       .join("\n");
 
+    const memoriasStr = memorias.length > 0
+      ? memorias.map((m) => `[${m.type}] ${m.content}`).join("\n")
+      : "Primeira análise — sem histórico ainda.";
+
     const prompt = `Você é um consultor financeiro pessoal brasileiro especialista. Analise os dados abaixo e escreva uma análise financeira personalizada em português brasileiro, sem usar markdown.
 
 DADOS FINANCEIROS (últimos 30 dias):
@@ -113,6 +118,9 @@ ${maioresGastos || "Sem dados"}
 
 BANCOS DO USUÁRIO:
 ${bancosInfo || "Nenhum banco conectado"}
+
+HISTÓRICO COMPORTAMENTAL (aprendido ao longo do tempo):
+${memoriasStr}
 
 Escreva uma análise em 4 parágrafos curtos e objetivos (texto corrido, sem listas, sem markdown, sem negrito):
 1. Situação atual com valores reais
