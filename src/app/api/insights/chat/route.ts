@@ -37,13 +37,17 @@ export async function POST(request: Request) {
     }
 
     // Buscar dados financeiros + memória + histórico + transações detalhadas
+    // Queries que podem falhar (tabelas podem não existir) usam .catch(() => [])
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const safe = (q: any) => (q as Promise<any[]>).catch(() => []);
+
     const [
       balanceRow, creditRow, investRow, categoriesRows, transacoesRows,
       incomeRow, banksRows, historicoRows, memorias, chatHistory, loansRows, snapshotsRows,
     ] = await Promise.all([
       sql`SELECT COALESCE(SUM(balance), 0)::float AS total FROM accounts WHERE user_id = ${userId} AND type NOT IN ('CREDIT','CREDIT_CARD')`,
       sql`SELECT COALESCE(SUM(ABS(balance)), 0)::float AS used, COALESCE(SUM(COALESCE(credit_limit, 0)), 0)::float AS lim FROM accounts WHERE user_id = ${userId} AND type IN ('CREDIT','CREDIT_CARD')`,
-      sql`SELECT COALESCE(SUM(i.balance), 0)::float AS total FROM investments i JOIN pluggy_items pi ON i.item_id = pi.id WHERE pi.user_id = ${userId}`,
+      safe(sql`SELECT COALESCE(SUM(i.balance), 0)::float AS total FROM investments i JOIN pluggy_items pi ON i.item_id = pi.id WHERE pi.user_id = ${userId}`),
       sql`SELECT COALESCE(category, 'Outros') AS category, SUM(ABS(amount))::float AS total FROM transactions WHERE user_id = ${userId} AND amount < 0 AND date >= NOW() - INTERVAL '30 days' GROUP BY category ORDER BY total DESC LIMIT 8`,
       sql`SELECT description, amount::float, date::text, category, ABS(amount)::float AS valor FROM transactions WHERE user_id = ${userId} AND date >= NOW() - INTERVAL '90 days' ORDER BY date DESC LIMIT 100`,
       sql`SELECT COALESCE(SUM(amount), 0)::float AS total FROM transactions WHERE user_id = ${userId} AND amount > 0 AND date >= NOW() - INTERVAL '30 days'`,
@@ -52,10 +56,10 @@ export async function POST(request: Request) {
              COALESCE(SUM(CASE WHEN amount > 0 THEN amount ELSE 0 END), 0)::float AS receita,
              COALESCE(SUM(CASE WHEN amount < 0 THEN ABS(amount) ELSE 0 END), 0)::float AS gastos
            FROM transactions WHERE user_id = ${userId} AND date >= NOW() - INTERVAL '90 days' GROUP BY mes ORDER BY mes`,
-      sql`SELECT type, content FROM ai_memory WHERE user_id = ${userId} ORDER BY updated_at DESC LIMIT 20`,
-      sql`SELECT role, content FROM ai_chat_history WHERE user_id = ${userId} ORDER BY created_at DESC LIMIT 20`,
-      sql`SELECT l.institution_name, l.name, l.outstanding_balance::float, l.installment_amount::float, l.total_installments, l.paid_installments, l.interest_rate::float FROM loans l JOIN pluggy_items pi ON l.item_id = pi.id WHERE pi.user_id = ${userId}`,
-      sql`SELECT month, receita::float, gastos::float, saldo::float, score_saude FROM financial_snapshots WHERE user_id = ${userId} ORDER BY month DESC LIMIT 12`,
+      safe(sql`SELECT type, content FROM ai_memory WHERE user_id = ${userId} ORDER BY updated_at DESC LIMIT 20`),
+      safe(sql`SELECT role, content FROM ai_chat_history WHERE user_id = ${userId} ORDER BY created_at DESC LIMIT 20`),
+      safe(sql`SELECT l.institution_name, l.name, l.outstanding_balance::float, l.installment_amount::float, l.total_installments, l.paid_installments, l.interest_rate::float FROM loans l JOIN pluggy_items pi ON l.item_id = pi.id WHERE pi.user_id = ${userId}`),
+      safe(sql`SELECT month, receita::float, gastos::float, saldo::float, score_saude FROM financial_snapshots WHERE user_id = ${userId} ORDER BY month DESC LIMIT 12`),
     ]);
 
     const saldo = num(balanceRow[0]?.total);
@@ -165,9 +169,11 @@ REGRAS:
 
     if (!reply) reply = "Desculpe, não consegui gerar uma resposta. Tente novamente.";
 
-    // Salvar mensagem e resposta no histórico
-    await sql`INSERT INTO ai_chat_history (user_id, role, content) VALUES (${userId}, 'user', ${message})`;
-    await sql`INSERT INTO ai_chat_history (user_id, role, content) VALUES (${userId}, 'assistant', ${reply})`;
+    // Salvar mensagem e resposta no histórico (silencioso se tabela não existir)
+    try {
+      await sql`INSERT INTO ai_chat_history (user_id, role, content) VALUES (${userId}, 'user', ${message})`;
+      await sql`INSERT INTO ai_chat_history (user_id, role, content) VALUES (${userId}, 'assistant', ${reply})`;
+    } catch { /* tabela pode não existir */ }
 
     // Extrair e salvar memórias em background (sem bloquear resposta)
     extractAndSaveMemory(apiKey, userId, message, reply).catch(() => {});
