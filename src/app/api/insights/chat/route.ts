@@ -36,16 +36,16 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: "Mensagem vazia" }, { status: 400 });
     }
 
-    // Buscar dados financeiros + memória + histórico do banco
+    // Buscar dados financeiros + memória + histórico + transações detalhadas
     const [
-      balanceRow, creditRow, investRow, categoriesRows, topExpensesRows,
+      balanceRow, creditRow, investRow, categoriesRows, transacoesRows,
       incomeRow, banksRows, historicoRows, memorias, chatHistory,
     ] = await Promise.all([
       sql`SELECT COALESCE(SUM(balance), 0)::float AS total FROM accounts WHERE user_id = ${userId} AND type NOT IN ('CREDIT','CREDIT_CARD')`,
       sql`SELECT COALESCE(SUM(ABS(balance)), 0)::float AS used, COALESCE(SUM(COALESCE(credit_limit, 0)), 0)::float AS lim FROM accounts WHERE user_id = ${userId} AND type IN ('CREDIT','CREDIT_CARD')`,
       sql`SELECT COALESCE(SUM(balance), 0)::float AS total FROM investments WHERE user_id = ${userId}`,
       sql`SELECT COALESCE(category, 'Outros') AS category, SUM(ABS(amount))::float AS total FROM transactions WHERE user_id = ${userId} AND amount < 0 AND date >= NOW() - INTERVAL '30 days' GROUP BY category ORDER BY total DESC LIMIT 8`,
-      sql`SELECT description, ABS(amount)::float AS valor, date::text AS date FROM transactions WHERE user_id = ${userId} AND amount < 0 AND date >= NOW() - INTERVAL '30 days' ORDER BY ABS(amount) DESC LIMIT 5`,
+      sql`SELECT description, amount::float, date::text, category, ABS(amount)::float AS valor FROM transactions WHERE user_id = ${userId} AND date >= NOW() - INTERVAL '90 days' ORDER BY date DESC LIMIT 100`,
       sql`SELECT COALESCE(SUM(amount), 0)::float AS total FROM transactions WHERE user_id = ${userId} AND amount > 0 AND date >= NOW() - INTERVAL '30 days'`,
       sql`SELECT institution_name FROM pluggy_items WHERE user_id = ${userId}`,
       sql`SELECT TO_CHAR(DATE_TRUNC('month', date), 'YYYY-MM') AS mes,
@@ -66,12 +66,15 @@ export async function POST(request: Request) {
     const percentualCredito = creditoLimite > 0 ? ((creditoUsado / creditoLimite) * 100).toFixed(0) : "0";
 
     const gastosCat = categoriesRows.map((c) => `- ${c.category}: R$ ${num(c.total).toFixed(2)}`).join("\n");
-    const maioresGastos = topExpensesRows.map((t) => `- ${t.description}: R$ ${num(t.valor).toFixed(2)} (${t.date})`).join("\n");
     const histMensal = historicoRows.map((h) => `- ${h.mes}: Receita R$ ${num(h.receita).toFixed(2)} | Gastos R$ ${num(h.gastos).toFixed(2)}`).join("\n");
     const bancosInfo = banksRows.map((b) => `- ${b.institution_name}: ${infosBancos[String(b.institution_name)] || "banco conectado"}`).join("\n");
     const memoriasStr = memorias.length > 0
       ? memorias.map((m) => `[${m.type}] ${m.content}`).join("\n")
       : "Nenhuma memória ainda — primeira interação.";
+
+    const listaTransacoes = transacoesRows.map((t) =>
+      `${t.date} | ${num(t.amount) > 0 ? "RECEITA" : "GASTO"} | R$ ${num(t.valor).toFixed(2)} | ${t.description} | ${t.category || "Outros"}`
+    ).join("\n");
 
     const systemPrompt = `Você é um consultor financeiro pessoal especialista do app Prycci Finance.
 
@@ -85,14 +88,23 @@ ${histMensal || "Sem histórico"}
 GASTOS POR CATEGORIA:
 ${gastosCat || "Sem dados"}
 
-MAIORES TRANSAÇÕES:
-${maioresGastos || "Sem dados"}
-
 BANCOS:
 ${bancosInfo || "Nenhum"}
 
+TRANSAÇÕES DETALHADAS (últimos 90 dias):
+${listaTransacoes || "Sem transações"}
+
 MEMÓRIA DO USUÁRIO (padrões e comportamentos identificados):
 ${memoriasStr}
+
+INSTRUÇÕES PARA ANÁLISE DE TRANSAÇÕES:
+- Quando perguntarem sobre um comerciante (Uber, iFood, Netflix, etc.), busque na lista por description contendo esse nome
+- Quando perguntarem sobre últimos 7, 14 ou 30 dias, filtre pela coluna date
+- Identifique padrões: gastos recorrentes, comerciantes frequentes, dias com mais gastos
+- "UBER DO BRASIL TECNOLOGIA" = Uber, "IFOOD" = iFood, "MERCADO"/"SUPERMERCADO" = supermercado
+- "Transferência enviada|NOME" = PIX para NOME, "Pagamento de fatura" = cartão de crédito
+- Sempre some os valores quando perguntarem total gasto com X
+- Seja preciso com datas e valores reais
 
 REGRAS:
 1. Português brasileiro, texto limpo (sem markdown/negrito/itálico)
@@ -124,7 +136,7 @@ REGRAS:
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
         contents,
-        generationConfig: { temperature: 0.7, maxOutputTokens: 1024, responseMimeType: "text/plain" },
+        generationConfig: { temperature: 0.7, maxOutputTokens: 2048, responseMimeType: "text/plain" },
       }),
     });
 
@@ -155,14 +167,22 @@ REGRAS:
 
 async function extractAndSaveMemory(apiKey: string, userId: string, userMsg: string, aiReply: string) {
   try {
-    const prompt = `Com base nessa conversa financeira, identifique SE HOUVER novos padrões, objetivos ou comportamentos relevantes do usuário.
+    const prompt = `Com base nessa conversa financeira, identifique SE HOUVER novos padrões comportamentais específicos do usuário.
 
 Mensagem do usuário: "${userMsg}"
 Resposta da IA: "${aiReply}"
 
+Identifique padrões como:
+- Comerciantes frequentes (ex: "Usa Uber regularmente")
+- Gastos recorrentes (ex: "Paga academia todo mês")
+- Comportamento com crédito (ex: "Costuma ultrapassar limite")
+- Objetivos mencionados (ex: "Quer quitar cartão até junho")
+- Renda irregular ou regular
+Seja específico e use nomes reais dos comerciantes.
+
 Responda APENAS com JSON válido:
 {"memories":[{"type":"pattern","content":"texto curto"}]}
-ou {"memories":[]} se não houver nada novo.
+ou {"memories":[]} se não houver nada relevante.
 Tipos: pattern, goal, alert, behavior. Máximo 2 memories.`;
 
     const res = await fetch(

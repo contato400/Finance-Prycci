@@ -51,13 +51,13 @@ export async function POST(request: Request) {
 
     const [
       balanceRow, creditRow, investRow, categoriesRows,
-      topExpensesRows, incomeRow, banksRows, historicoRows, memorias,
+      transacoesRows, incomeRow, banksRows, historicoRows, memorias,
     ] = await Promise.all([
       sql`SELECT COALESCE(SUM(balance), 0)::float AS total FROM accounts WHERE user_id = ${userId} AND type NOT IN ('CREDIT','CREDIT_CARD')`,
       sql`SELECT COALESCE(SUM(ABS(balance)), 0)::float AS used, COALESCE(SUM(COALESCE(credit_limit, 0)), 0)::float AS lim FROM accounts WHERE user_id = ${userId} AND type IN ('CREDIT','CREDIT_CARD')`,
       sql`SELECT COALESCE(SUM(balance), 0)::float AS total, COUNT(*)::int AS count FROM investments WHERE user_id = ${userId}`,
       sql`SELECT COALESCE(category, 'Outros') AS category, SUM(ABS(amount))::float AS total FROM transactions WHERE user_id = ${userId} AND amount < 0 AND date >= NOW() - INTERVAL '30 days' GROUP BY category ORDER BY total DESC LIMIT 8`,
-      sql`SELECT description, ABS(amount)::float AS valor, date::text AS date FROM transactions WHERE user_id = ${userId} AND amount < 0 AND date >= NOW() - INTERVAL '30 days' ORDER BY ABS(amount) DESC LIMIT 5`,
+      sql`SELECT description, amount::float, date::text, category, ABS(amount)::float AS valor FROM transactions WHERE user_id = ${userId} AND date >= NOW() - INTERVAL '90 days' ORDER BY date DESC LIMIT 100`,
       sql`SELECT COALESCE(SUM(amount), 0)::float AS total FROM transactions WHERE user_id = ${userId} AND amount > 0 AND date >= NOW() - INTERVAL '30 days'`,
       sql`SELECT institution_name FROM pluggy_items WHERE user_id = ${userId}`,
       sql`SELECT TO_CHAR(DATE_TRUNC('month', date), 'YYYY-MM') AS mes,
@@ -81,9 +81,9 @@ export async function POST(request: Request) {
       .map((c) => `- ${trad(String(c.category))}: R$ ${num(c.total).toFixed(2)}`)
       .join("\n");
 
-    const maioresGastos = topExpensesRows
-      .map((t) => `- ${t.description}: R$ ${num(t.valor).toFixed(2)} (${t.date})`)
-      .join("\n");
+    const listaTransacoes = transacoesRows.map((t) =>
+      `${t.date} | ${num(t.amount) > 0 ? "RECEITA" : "GASTO"} | R$ ${num(t.valor).toFixed(2)} | ${t.description} | ${t.category || "Outros"}`
+    ).join("\n");
 
     const historicoMensal = historicoRows
       .map((h) => `- ${h.mes}: Receita R$ ${num(h.receita).toFixed(2)} | Gastos R$ ${num(h.gastos).toFixed(2)} | Líquido R$ ${(num(h.receita) - num(h.gastos)).toFixed(2)}`)
@@ -113,11 +113,13 @@ ${historicoMensal || "Sem histórico"}
 GASTOS POR CATEGORIA:
 ${gastosPorCategoria || "Sem dados"}
 
-MAIORES GASTOS:
-${maioresGastos || "Sem dados"}
+TRANSAÇÕES DETALHADAS (últimos 90 dias):
+${listaTransacoes || "Sem transações"}
 
 BANCOS DO USUÁRIO:
 ${bancosInfo || "Nenhum banco conectado"}
+
+Ao identificar comerciantes nas transações: UBER = transporte Uber, IFOOD = delivery, MERCADO/SUPERMERCADO = supermercado, FARMACIA/DROGARIA = farmácia, "Transferência enviada|NOME" = PIX para NOME. Use isso para dar análises mais humanas e precisas.
 
 HISTÓRICO COMPORTAMENTAL (aprendido ao longo do tempo):
 ${memoriasStr}
