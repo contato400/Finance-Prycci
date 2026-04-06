@@ -39,11 +39,11 @@ export async function POST(request: Request) {
     // Buscar dados financeiros + memória + histórico + transações detalhadas
     const [
       balanceRow, creditRow, investRow, categoriesRows, transacoesRows,
-      incomeRow, banksRows, historicoRows, memorias, chatHistory, loansRows,
+      incomeRow, banksRows, historicoRows, memorias, chatHistory, loansRows, snapshotsRows,
     ] = await Promise.all([
       sql`SELECT COALESCE(SUM(balance), 0)::float AS total FROM accounts WHERE user_id = ${userId} AND type NOT IN ('CREDIT','CREDIT_CARD')`,
       sql`SELECT COALESCE(SUM(ABS(balance)), 0)::float AS used, COALESCE(SUM(COALESCE(credit_limit, 0)), 0)::float AS lim FROM accounts WHERE user_id = ${userId} AND type IN ('CREDIT','CREDIT_CARD')`,
-      sql`SELECT COALESCE(SUM(balance), 0)::float AS total FROM investments WHERE user_id = ${userId}`,
+      sql`SELECT COALESCE(SUM(i.balance), 0)::float AS total FROM investments i JOIN pluggy_items pi ON i.item_id = pi.id WHERE pi.user_id = ${userId}`,
       sql`SELECT COALESCE(category, 'Outros') AS category, SUM(ABS(amount))::float AS total FROM transactions WHERE user_id = ${userId} AND amount < 0 AND date >= NOW() - INTERVAL '30 days' GROUP BY category ORDER BY total DESC LIMIT 8`,
       sql`SELECT description, amount::float, date::text, category, ABS(amount)::float AS valor FROM transactions WHERE user_id = ${userId} AND date >= NOW() - INTERVAL '90 days' ORDER BY date DESC LIMIT 100`,
       sql`SELECT COALESCE(SUM(amount), 0)::float AS total FROM transactions WHERE user_id = ${userId} AND amount > 0 AND date >= NOW() - INTERVAL '30 days'`,
@@ -55,6 +55,7 @@ export async function POST(request: Request) {
       sql`SELECT type, content FROM ai_memory WHERE user_id = ${userId} ORDER BY updated_at DESC LIMIT 20`,
       sql`SELECT role, content FROM ai_chat_history WHERE user_id = ${userId} ORDER BY created_at DESC LIMIT 20`,
       sql`SELECT l.institution_name, l.name, l.outstanding_balance::float, l.installment_amount::float, l.total_installments, l.paid_installments, l.interest_rate::float FROM loans l JOIN pluggy_items pi ON l.item_id = pi.id WHERE pi.user_id = ${userId}`,
+      sql`SELECT month, receita::float, gastos::float, saldo::float, score_saude FROM financial_snapshots WHERE user_id = ${userId} ORDER BY month DESC LIMIT 12`,
     ]);
 
     const saldo = num(balanceRow[0]?.total);
@@ -72,6 +73,9 @@ export async function POST(request: Request) {
     const loansInfo = loansRows.length > 0
       ? loansRows.map((l) => `- ${l.institution_name}: ${l.name} | Saldo devedor: R$ ${num(l.outstanding_balance).toFixed(2)} | Parcela: R$ ${num(l.installment_amount).toFixed(2)} | ${l.paid_installments}/${l.total_installments} pagas | Taxa: ${num(l.interest_rate)}%`).join("\n")
       : "Nenhum empréstimo encontrado";
+    const snapshotsInfo = snapshotsRows.length > 0
+      ? snapshotsRows.map((s) => `${s.month}: Receita R$ ${num(s.receita).toFixed(0)} | Gastos R$ ${num(s.gastos).toFixed(0)} | Saldo R$ ${num(s.saldo).toFixed(0)} | Score ${s.score_saude}`).join("\n")
+      : "Primeiro mês — sem histórico anterior";
     const memoriasStr = memorias.length > 0
       ? memorias.map((m) => `[${m.type}] ${m.content}`).join("\n")
       : "Nenhuma memória ainda — primeira interação.";
@@ -97,6 +101,9 @@ ${bancosInfo || "Nenhum"}
 
 EMPRÉSTIMOS E FINANCIAMENTOS ATIVOS:
 ${loansInfo}
+
+HISTÓRICO FINANCEIRO MENSAL (evolução ao longo do tempo):
+${snapshotsInfo}
 
 TRANSAÇÕES DETALHADAS (últimos 90 dias):
 ${listaTransacoes || "Sem transações"}

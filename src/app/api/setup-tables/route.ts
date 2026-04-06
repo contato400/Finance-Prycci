@@ -58,10 +58,29 @@ export async function GET() {
     await sql.unsafe(`CREATE INDEX IF NOT EXISTS idx_bills_user ON bills(user_id)`);
     results.push("idx_bills_user: criado");
 
+    await sql.unsafe(`
+      CREATE TABLE IF NOT EXISTS financial_snapshots (
+        id SERIAL PRIMARY KEY,
+        user_id TEXT NOT NULL,
+        month TEXT NOT NULL,
+        receita FLOAT DEFAULT 0,
+        gastos FLOAT DEFAULT 0,
+        saldo FLOAT DEFAULT 0,
+        credito_usado FLOAT DEFAULT 0,
+        credito_limite FLOAT DEFAULT 0,
+        investido FLOAT DEFAULT 0,
+        score_saude INT DEFAULT 0,
+        gastos_por_categoria JSONB,
+        created_at TIMESTAMPTZ DEFAULT NOW(),
+        UNIQUE(user_id, month)
+      )
+    `);
+    results.push("financial_snapshots: criada");
+
     // Verificar
     const tables = await sql`
       SELECT table_name FROM information_schema.tables
-      WHERE table_name IN ('ai_memory', 'ai_chat_history')
+      WHERE table_name IN ('ai_memory', 'ai_chat_history', 'bills', 'financial_snapshots')
       ORDER BY table_name`;
 
     return NextResponse.json({

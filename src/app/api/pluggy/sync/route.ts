@@ -147,6 +147,14 @@ export async function POST(request: Request) {
       log(`Cache ERRO: ${cacheErr instanceof Error ? cacheErr.message : String(cacheErr)}`);
     }
 
+    // Salvar snapshot mensal
+    try {
+      await saveSnapshot(userId);
+      log("Snapshot mensal salvo");
+    } catch (snapErr) {
+      log(`Snapshot ERRO: ${snapErr instanceof Error ? snapErr.message : String(snapErr)}`);
+    }
+
     return Response.json({
       message: `${results.itemsSynced} de ${results.itemsFound} bancos sincronizados.`,
       synced: results.itemsSynced > 0, results,
@@ -274,4 +282,29 @@ async function syncBills(pluggy: Pluggy, dbItem: { id: string; item_id: string }
     }
   } catch (e) { log(`  Bills indisponível: ${e instanceof Error ? e.message : String(e)}`); }
   return count;
+}
+
+function num(v: unknown): number {
+  if (v === null || v === undefined) return 0;
+  const n = Number(v);
+  return isNaN(n) ? 0 : n;
+}
+
+async function saveSnapshot(userId: string) {
+  const month = new Date().toISOString().slice(0, 7);
+  const [incRow, expRow, balRow, crRow, invRow, catRows] = await Promise.all([
+    sql`SELECT COALESCE(SUM(amount), 0)::float AS v FROM transactions WHERE user_id = ${userId} AND amount > 0 AND date >= DATE_TRUNC('month', NOW())`,
+    sql`SELECT COALESCE(SUM(ABS(amount)), 0)::float AS v FROM transactions WHERE user_id = ${userId} AND amount < 0 AND date >= DATE_TRUNC('month', NOW())`,
+    sql`SELECT COALESCE(SUM(balance), 0)::float AS v FROM accounts WHERE user_id = ${userId} AND type NOT IN ('CREDIT','CREDIT_CARD')`,
+    sql`SELECT COALESCE(SUM(ABS(balance)), 0)::float AS u, COALESCE(SUM(COALESCE(credit_limit,0)),0)::float AS l FROM accounts WHERE user_id = ${userId} AND type IN ('CREDIT','CREDIT_CARD')`,
+    sql`SELECT COALESCE(SUM(i.balance), 0)::float AS v FROM investments i JOIN pluggy_items pi ON i.item_id = pi.id WHERE pi.user_id = ${userId}`,
+    sql`SELECT COALESCE(category,'Outros') AS cat, SUM(ABS(amount))::float AS t FROM transactions WHERE user_id = ${userId} AND amount < 0 AND date >= DATE_TRUNC('month', NOW()) GROUP BY cat ORDER BY t DESC LIMIT 10`,
+  ]);
+  const rec = num(incRow[0]?.v); const gas = num(expRow[0]?.v);
+  const ratio = rec > 0 ? gas / rec : 1;
+  const score = ratio < 0.5 ? 9 : ratio < 0.7 ? 7 : ratio < 0.85 ? 5 : ratio <= 1 ? 3 : 1;
+  const cats = Object.fromEntries(catRows.map((c) => [String(c.cat), num(c.t)]));
+  await sql`INSERT INTO financial_snapshots (user_id, month, receita, gastos, saldo, credito_usado, credito_limite, investido, score_saude, gastos_por_categoria)
+    VALUES (${userId}, ${month}, ${rec}, ${gas}, ${num(balRow[0]?.v)}, ${num(crRow[0]?.u)}, ${num(crRow[0]?.l)}, ${num(invRow[0]?.v)}, ${score}, ${JSON.stringify(cats)}::jsonb)
+    ON CONFLICT (user_id, month) DO UPDATE SET receita=EXCLUDED.receita, gastos=EXCLUDED.gastos, saldo=EXCLUDED.saldo, credito_usado=EXCLUDED.credito_usado, credito_limite=EXCLUDED.credito_limite, investido=EXCLUDED.investido, score_saude=EXCLUDED.score_saude, gastos_por_categoria=EXCLUDED.gastos_por_categoria, created_at=NOW()`;
 }
