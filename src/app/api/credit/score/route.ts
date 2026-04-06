@@ -16,13 +16,14 @@ export async function GET(request: Request) {
     if (auth instanceof NextResponse) return auth;
     const { userId } = auth;
 
-    const [incomeRow, expenseRow, creditRow, investRow, banksRow, monthsRow] = await Promise.all([
+    const [incomeRow, expenseRow, creditRow, investRow, banksRow, monthsRow, banksListRows] = await Promise.all([
       sql`SELECT COALESCE(SUM(amount), 0)::float AS total FROM transactions WHERE user_id = ${userId} AND amount > 0 AND date >= NOW() - INTERVAL '30 days'`,
       sql`SELECT COALESCE(SUM(ABS(amount)), 0)::float AS total FROM transactions WHERE user_id = ${userId} AND amount < 0 AND date >= NOW() - INTERVAL '30 days'`,
       sql`SELECT COALESCE(SUM(ABS(balance)), 0)::float AS used, COALESCE(SUM(COALESCE(credit_limit, 0)), 0)::float AS lim FROM accounts WHERE user_id = ${userId} AND type IN ('CREDIT','CREDIT_CARD')`,
       sql`SELECT COALESCE(SUM(balance), 0)::float AS total FROM investments WHERE user_id = ${userId}`,
       sql`SELECT COUNT(DISTINCT institution_name)::int AS total FROM pluggy_items WHERE user_id = ${userId}`,
       sql`SELECT COUNT(DISTINCT DATE_TRUNC('month', date))::int AS meses FROM transactions WHERE user_id = ${userId} AND amount > 0 AND date >= NOW() - INTERVAL '90 days'`,
+      sql`SELECT DISTINCT institution_name FROM pluggy_items WHERE user_id = ${userId}`,
     ]);
 
     const receita = num(incomeRow[0]?.total);
@@ -82,6 +83,7 @@ export async function GET(request: Request) {
         credito36x: parcelaMaxSugerida * 36,
       },
       creditUsed, creditLimit,
+      bancos: banksListRows.map((b) => String(b.institution_name)),
     });
   } catch (error) {
     console.error("Credit score error:", error);

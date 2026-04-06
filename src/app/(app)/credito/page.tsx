@@ -73,12 +73,17 @@ export default function CreditoPage() {
   async function gerarAnaliseIA() {
     setLoadingIA(true);
     try {
-      const res = await apiFetch("/api/insights", { method: "POST" });
+      const res = await apiFetch("/api/credit/ai-analysis", { method: "POST" });
       const json = await res.json();
-      setAnaliseIA(json.analysis?.analise || json.analysis?.resumo || "Análise indisponível.");
+      setAnaliseIA(json.analise || "Análise indisponível.");
     } catch { setAnaliseIA("Erro ao gerar análise."); }
     finally { setLoadingIA(false); }
   }
+
+  // Auto-gerar análise da IA ao carregar
+  useEffect(() => {
+    if (!loading && scoreData && !analiseIA) gerarAnaliseIA();
+  }, [loading, scoreData]); // eslint-disable-line react-hooks/exhaustive-deps
 
   if (loading) return <CreditoSkeleton />;
   const s = scoreData;
@@ -275,7 +280,7 @@ function ScoreBar({ name, value, max }: { name: string; value: number; max: numb
   return (
     <div>
       <div className="flex items-center justify-between text-xs"><span className="text-slate-400">{name}</span><span className="text-slate-500">{value}/{max}</span></div>
-      <div className="mt-1 h-2 w-full overflow-hidden rounded-full bg-slate-800"><div className={`h-full rounded-full ${color}`} style={{ width: `${pct}%` }} /></div>
+      <div className="mt-1 h-1.5 w-full overflow-hidden rounded-full bg-slate-800"><div className={`h-full rounded-full ${color}`} style={{ width: `${pct}%` }} /></div>
     </div>
   );
 }
