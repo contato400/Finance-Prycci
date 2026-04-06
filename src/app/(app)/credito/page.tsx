@@ -1,75 +1,65 @@
 "use client";
 
-import { useEffect, useState, useCallback } from "react";
+import { useEffect, useState } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Progress } from "@/components/ui/progress";
 import { Skeleton } from "@/components/ui/skeleton";
+import { BankAvatar } from "@/components/bank-avatar";
 import { formatCurrency } from "@/lib/utils";
 import { apiFetch } from "@/lib/api-client";
-import { BankAvatar } from "@/components/bank-avatar";
-import { UpgradeOverlay } from "@/components/upgrade-overlay";
-import { usePlan } from "@/hooks/use-plan";
-import { toast } from "@/hooks/use-toast";
-import {
-  ShieldCheck, AlertTriangle, CreditCard, Calculator, Search,
-  Plus, ArrowUpRight, Wallet,
-} from "lucide-react";
+import { ResponsiveContainer, RadialBarChart, RadialBar } from "recharts";
+import { ShieldCheck, Calculator, CreditCard, Sparkles, RefreshCw } from "lucide-react";
 
-// --- Types ---
-interface ScoreBreakdown {
-  total: number;
-  income: { score: number; avgIncome: number };
-  commitment: { score: number; ratio: number };
-  creditUsage: { score: number; ratio: number };
-  regularity: { score: number; monthsPaid: number };
-  diversification: { score: number; investments: number; banks: number; balance: number };
+interface ScoreData {
+  score: number; label: string; color: string;
+  breakdown: { renda: number; comprometimento: number; credito: number; regularidade: number; diversificacao: number };
+  capacidade: { rendaMedia: number; gastosMedios: number; disponivelMensal: number; parcelaMaxSugerida: number; credito12x: number; credito24x: number; credito36x: number };
+  creditUsed: number; creditLimit: number;
 }
 
-interface LoanCapacity {
-  avgIncome: number; avgExpense: number; disponivel: number; parcelaMax: number;
-  credito12x: number; credito24x: number; credito36x: number;
-}
+interface CardByBank { name: string; institution: string; limit: number; used: number; available: number; }
 
-interface CardByBank {
-  name: string; institution: string; limit: number; used: number; available: number;
-}
+const BANK_RATES: Record<string, number> = {
+  "Nubank": 1.99, "Banco Inter": 1.89, "Caixa Econômica Federal": 0.75,
+  "Nubank Empresas": 1.99, "Bradesco": 2.49, "Itaú": 2.29, "Santander": 2.39,
+};
 
-interface CreditoData {
-  scoreBreakdown: ScoreBreakdown;
-  loanCapacity: LoanCapacity;
-  cardsByBank: CardByBank[];
-  totalCreditLimit: number; totalCreditUsed: number; totalCreditAvailable: number;
-  loans: Array<{ id: string; institution_name: string; name: string; total_amount: number; total_installments: number; paid_installments: number; outstanding_balance: number }>;
-  totalLoanDebt: number;
-  cpfConsultations: Array<{ id: string; consulted_at: string; institution: string; type: string }>;
-  recentCpfCount: number;
-}
+const COLOR_MAP: Record<string, string> = { green: "#10b981", yellow: "#eab308", orange: "#f97316", red: "#ef4444" };
 
 export default function CreditoPage() {
-  const [data, setData] = useState<CreditoData | null>(null);
+  const [scoreData, setScoreData] = useState<ScoreData | null>(null);
+  const [cards, setCards] = useState<CardByBank[]>([]);
   const [loading, setLoading] = useState(true);
   // Simulador
   const [simValor, setSimValor] = useState(10000);
   const [simPrazo, setSimPrazo] = useState(24);
+  const [simBanco, setSimBanco] = useState("");
   const [simTaxa, setSimTaxa] = useState(1.99);
-  const { isPro, loading: planLoading } = usePlan();
-  // CPF
-  const [cpfInst, setCpfInst] = useState("");
-  const [cpfType, setCpfType] = useState("Consulta de crédito");
-  const [cpfDate, setCpfDate] = useState(new Date().toISOString().split("T")[0]);
-  const [savingCpf, setSavingCpf] = useState(false);
+  // IA
+  const [analiseIA, setAnaliseIA] = useState("");
+  const [loadingIA, setLoadingIA] = useState(false);
 
-  const fetchData = useCallback(async () => {
-    setLoading(true);
-    try {
-      const res = await apiFetch("/api/credito");
-      setData(await res.json());
-    } catch { /* */ }
-    finally { setLoading(false); }
+  useEffect(() => {
+    Promise.all([
+      apiFetch("/api/credit/score").then((r) => r.json()),
+      apiFetch("/api/cartoes").then((r) => r.json()),
+    ]).then(([score, cartoes]) => {
+      setScoreData(score);
+      if (cartoes.cards) {
+        setCards(cartoes.cards.map((c: { name: string; accounts?: { pluggy_items?: { institution_name: string } }; credit_limit: number; balance: number; available_limit: number }) => ({
+          name: c.name,
+          institution: c.accounts?.pluggy_items?.institution_name || "Desconhecido",
+          limit: c.credit_limit,
+          used: c.balance,
+          available: c.available_limit,
+        })));
+        // Setar banco padrão no simulador
+        const firstBank = cartoes.cards[0]?.accounts?.pluggy_items?.institution_name;
+        if (firstBank) { setSimBanco(firstBank); setSimTaxa(BANK_RATES[firstBank] || 1.99); }
+      }
+    }).finally(() => setLoading(false));
   }, []);
-
-  useEffect(() => { fetchData(); }, [fetchData]);
 
   // Simulador Price
   const taxaMensal = simTaxa / 100;
@@ -78,108 +68,95 @@ export default function CreditoPage() {
     : simValor / simPrazo;
   const totalPago = parcela * simPrazo;
   const totalJuros = totalPago - simValor;
-  const parcelaPercRenda = data?.loanCapacity.avgIncome ? Math.round((parcela / data.loanCapacity.avgIncome) * 100) : 0;
+  const parcelaPercRenda = scoreData?.capacidade.rendaMedia ? Math.round((parcela / scoreData.capacidade.rendaMedia) * 100) : 0;
 
-  async function handleSaveCpf() {
-    if (!cpfInst.trim()) { toast({ title: "Informe a instituição", variant: "destructive" }); return; }
-    setSavingCpf(true);
+  async function gerarAnaliseIA() {
+    setLoadingIA(true);
     try {
-      const res = await apiFetch("/api/credito/cpf", {
-        method: "POST", headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ institution: cpfInst, type: cpfType, consulted_at: cpfDate }),
-      });
-      if (!res.ok) throw new Error();
-      toast({ title: "Consulta registrada!" });
-      setCpfInst("");
-      fetchData();
-    } catch { toast({ title: "Erro ao salvar", variant: "destructive" }); }
-    finally { setSavingCpf(false); }
+      const res = await apiFetch("/api/insights", { method: "POST" });
+      const json = await res.json();
+      setAnaliseIA(json.analysis?.analise || json.analysis?.resumo || "Análise indisponível.");
+    } catch { setAnaliseIA("Erro ao gerar análise."); }
+    finally { setLoadingIA(false); }
   }
 
   if (loading) return <CreditoSkeleton />;
-  const s = data?.scoreBreakdown;
-  const lc = data?.loanCapacity;
+  const s = scoreData;
+  const b = s?.breakdown;
+  const c = s?.capacidade;
 
   return (
     <div className="space-y-6">
       <div>
         <h1 className="text-2xl font-bold text-white">Análise de Crédito</h1>
-        <p className="text-sm text-slate-400">Score, capacidade, simulador e cartões</p>
+        <p className="text-sm text-slate-400">Score, capacidade e simulador</p>
       </div>
 
-      {/* ═══ SEÇÃO 1: Score Prycci Finance ═══ */}
+      {/* SCORE */}
       <Card className="border-slate-800 bg-slate-900">
-        <CardHeader><CardTitle className="flex items-center gap-2 text-white"><ShieldCheck className="h-5 w-5" />Score Prycci Finance</CardTitle></CardHeader>
+        <CardHeader><CardTitle className="flex items-center gap-2 text-white"><ShieldCheck className="h-5 w-5 text-emerald-400" />Score Prycci</CardTitle></CardHeader>
         <CardContent>
-          <div className="flex flex-col items-center gap-6 md:flex-row md:items-start">
-            <ScoreGauge score={s?.total ?? 0} />
+          <div className="flex flex-col gap-6 md:flex-row md:items-start">
+            <ScoreGauge score={s?.score ?? 0} color={s?.color ?? "red"} label={s?.label ?? ""} />
             <div className="flex-1 space-y-3">
-              <ScoreBar label="Renda mensal" score={s?.income.score ?? 0} detail={`Média: ${formatCurrency(s?.income.avgIncome ?? 0)}`} />
-              <ScoreBar label="Comprometimento" score={s?.commitment.score ?? 0} detail={`${s?.commitment.ratio ?? 0}% da renda`} />
-              <ScoreBar label="Uso do crédito" score={s?.creditUsage.score ?? 0} detail={`${s?.creditUsage.ratio ?? 0}% do limite`} />
-              <ScoreBar label="Regularidade" score={s?.regularity.score ?? 0} detail={`${s?.regularity.monthsPaid ?? 0}/3 meses`} />
-              <ScoreBar label="Diversificação" score={s?.diversification.score ?? 0} detail={`${s?.diversification.banks ?? 0} bancos, ${formatCurrency(s?.diversification.investments ?? 0)} investidos`} />
-              <ScoreLegend />
+              <ScoreBar name="Renda Mensal" value={b?.renda ?? 0} max={200} />
+              <ScoreBar name="Comprometimento" value={b?.comprometimento ?? 0} max={200} />
+              <ScoreBar name="Uso do Crédito" value={b?.credito ?? 0} max={200} />
+              <ScoreBar name="Regularidade" value={b?.regularidade ?? 0} max={200} />
+              <ScoreBar name="Diversificação" value={b?.diversificacao ?? 0} max={200} />
             </div>
           </div>
         </CardContent>
       </Card>
 
-      {/* ═══ SEÇÃO 2: Capacidade de Empréstimo ═══ */}
+      {/* CAPACIDADE */}
+      <div className="grid gap-4 sm:grid-cols-3">
+        <MetricCard label="Renda Média" value={formatCurrency(c?.rendaMedia ?? 0)} color="text-emerald-400" />
+        <MetricCard label="Disponível Mensal" value={formatCurrency(c?.disponivelMensal ?? 0)} color="text-white" />
+        <MetricCard label="Parcela Máx. Sugerida" value={formatCurrency(c?.parcelaMaxSugerida ?? 0)} sub="30% do disponível" color="text-emerald-400" />
+      </div>
       <Card className="border-slate-800 bg-slate-900">
-        <CardHeader><CardTitle className="flex items-center gap-2 text-white"><Wallet className="h-5 w-5" />Capacidade de Empréstimo</CardTitle></CardHeader>
-        <CardContent>
-          <div className="mb-4 grid gap-3 sm:grid-cols-3">
-            <div className="rounded-lg border border-slate-800 bg-slate-950/50 p-4 text-center">
-              <p className="text-xs text-slate-500">Renda média</p>
-              <p className="mt-1 text-xl font-bold text-emerald-400">{formatCurrency(lc?.avgIncome ?? 0)}</p>
-            </div>
-            <div className="rounded-lg border border-slate-800 bg-slate-950/50 p-4 text-center">
-              <p className="text-xs text-slate-500">Gastos médios</p>
-              <p className="mt-1 text-xl font-bold text-red-400">{formatCurrency(lc?.avgExpense ?? 0)}</p>
-            </div>
-            <div className="rounded-lg border border-slate-800 bg-slate-950/50 p-4 text-center">
-              <p className="text-xs text-slate-500">Parcela máx. sugerida</p>
-              <p className="mt-1 text-xl font-bold text-white">{formatCurrency(lc?.parcelaMax ?? 0)}</p>
-              <p className="text-[10px] text-slate-600">30% do disponível</p>
-            </div>
-          </div>
-          <div className="grid gap-3 sm:grid-cols-3">
-            {[
-              { label: "Crédito 12x", value: lc?.credito12x ?? 0 },
-              { label: "Crédito 24x", value: lc?.credito24x ?? 0 },
-              { label: "Crédito 36x", value: lc?.credito36x ?? 0 },
-            ].map((c) => (
-              <div key={c.label} className="flex items-center justify-between rounded-lg border border-slate-800 px-4 py-3">
-                <span className="text-sm text-slate-400">{c.label}</span>
-                <span className="text-sm font-bold text-white">{formatCurrency(c.value)}</span>
-              </div>
-            ))}
-          </div>
+        <CardContent className="p-0">
+          <table className="w-full text-sm">
+            <thead><tr className="border-b border-slate-800 text-left text-xs text-slate-500"><th className="p-3">Prazo</th><th className="p-3 text-right">Crédito Máximo</th><th className="p-3 text-right">Parcela</th></tr></thead>
+            <tbody>
+              {[{ p: 12, v: c?.credito12x }, { p: 24, v: c?.credito24x }, { p: 36, v: c?.credito36x }].map(({ p, v }) => (
+                <tr key={p} className={`border-b border-slate-800/50 ${p === 24 ? "bg-emerald-500/5" : ""}`}>
+                  <td className="p-3 text-white">{p}x {p === 24 && <span className="ml-1 rounded bg-emerald-500/20 px-1.5 py-0.5 text-[10px] text-emerald-400">recomendado</span>}</td>
+                  <td className="p-3 text-right font-medium text-white">{formatCurrency(v ?? 0)}</td>
+                  <td className="p-3 text-right text-slate-400">{formatCurrency(c?.parcelaMaxSugerida ?? 0)}/mês</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
         </CardContent>
       </Card>
 
-      {/* ═══ SEÇÃO 3: Simulador de Financiamento ═══ */}
-      <UpgradeOverlay feature="Simulador de Financiamento" locked={!planLoading && !isPro}>
+      {/* SIMULADOR */}
       <Card className="border-slate-800 bg-slate-900">
         <CardHeader><CardTitle className="flex items-center gap-2 text-white"><Calculator className="h-5 w-5" />Simulador de Financiamento</CardTitle></CardHeader>
         <CardContent>
           <div className="grid gap-6 md:grid-cols-2">
             <div className="space-y-4">
               <div>
-                <label className="text-xs text-slate-400">Valor desejado: {formatCurrency(simValor)}</label>
-                <input type="range" min={1000} max={200000} step={1000} value={simValor} onChange={(e) => setSimValor(Number(e.target.value))}
-                  className="mt-1 w-full accent-emerald-500" />
+                <div className="flex justify-between text-xs text-slate-400"><span>Valor</span><span>{formatCurrency(simValor)}</span></div>
+                <input type="range" min={1000} max={200000} step={1000} value={simValor} onChange={(e) => setSimValor(Number(e.target.value))} className="mt-1 w-full accent-emerald-500" />
               </div>
               <div>
-                <label className="text-xs text-slate-400">Prazo: {simPrazo} meses</label>
-                <input type="range" min={12} max={60} step={1} value={simPrazo} onChange={(e) => setSimPrazo(Number(e.target.value))}
-                  className="mt-1 w-full accent-emerald-500" />
+                <div className="flex justify-between text-xs text-slate-400"><span>Prazo</span><span>{simPrazo} meses</span></div>
+                <input type="range" min={12} max={60} value={simPrazo} onChange={(e) => setSimPrazo(Number(e.target.value))} className="mt-1 w-full accent-emerald-500" />
               </div>
               <div>
-                <label className="text-xs text-slate-400">Taxa de juros: {simTaxa.toFixed(2)}% a.m.</label>
-                <input type="range" min={0.5} max={5} step={0.01} value={simTaxa} onChange={(e) => setSimTaxa(Number(e.target.value))}
-                  className="mt-1 w-full accent-emerald-500" />
+                <div className="flex justify-between text-xs text-slate-400"><span>Banco</span><span>{simTaxa.toFixed(2)}% a.m.</span></div>
+                <select value={simBanco} onChange={(e) => { setSimBanco(e.target.value); setSimTaxa(BANK_RATES[e.target.value] || 1.99); }} className="mt-1 w-full rounded-md border border-slate-700 bg-slate-800 px-3 py-2 text-sm text-white">
+                  {Array.from(new Set(cards.map((cd) => cd.institution))).map((inst) => (
+                    <option key={inst} value={inst}>{inst} ({(BANK_RATES[inst] || 1.99).toFixed(2)}%)</option>
+                  ))}
+                  <option value="custom">Personalizado</option>
+                </select>
+                {simBanco === "custom" && (
+                  <input type="number" step={0.01} min={0.1} max={10} value={simTaxa} onChange={(e) => setSimTaxa(Number(e.target.value))} className="mt-2 w-full rounded-md border border-slate-700 bg-slate-800 px-3 py-2 text-sm text-white" placeholder="Taxa % a.m." />
+                )}
               </div>
             </div>
             <div className="space-y-3">
@@ -188,151 +165,130 @@ export default function CreditoPage() {
                 <p className="text-2xl font-bold text-white">{formatCurrency(parcela)}</p>
               </div>
               <div className="grid grid-cols-2 gap-3">
-                <div className="rounded-lg border border-slate-800 p-3">
-                  <p className="text-xs text-slate-500">Total pago</p>
-                  <p className="text-sm font-bold text-white">{formatCurrency(totalPago)}</p>
-                </div>
-                <div className="rounded-lg border border-slate-800 p-3">
-                  <p className="text-xs text-slate-500">Juros</p>
-                  <p className="text-sm font-bold text-red-400">{formatCurrency(totalJuros)}</p>
-                </div>
+                <div className="rounded-lg border border-slate-800 p-3"><p className="text-xs text-slate-500">Total</p><p className="text-sm font-bold text-white">{formatCurrency(totalPago)}</p></div>
+                <div className="rounded-lg border border-slate-800 p-3"><p className="text-xs text-slate-500">Juros</p><p className="text-sm font-bold text-red-400">{formatCurrency(totalJuros)}</p></div>
               </div>
-              <div className="flex items-center gap-2 rounded-lg border p-3" style={{
-                borderColor: parcelaPercRenda > 30 ? "#ef4444" : parcelaPercRenda > 20 ? "#eab308" : "#10b981",
-              }}>
+              <div className="flex items-center gap-2 rounded-lg border p-3" style={{ borderColor: parcelaPercRenda > 30 ? "#ef4444" : parcelaPercRenda > 20 ? "#eab308" : "#10b981" }}>
                 <div className={`h-3 w-3 rounded-full ${parcelaPercRenda > 30 ? "bg-red-500" : parcelaPercRenda > 20 ? "bg-yellow-500" : "bg-emerald-500"}`} />
                 <span className="text-xs text-slate-300">{parcelaPercRenda}% da sua renda mensal</span>
               </div>
+              {/* Comparativo entre bancos */}
+              {cards.length > 1 && (
+                <div className="space-y-1">
+                  <p className="text-[10px] text-slate-500">Comparativo para {formatCurrency(simValor)} em {simPrazo}x:</p>
+                  {Array.from(new Set(cards.map((cd) => cd.institution))).map((inst) => {
+                    const t = (BANK_RATES[inst] || 1.99) / 100;
+                    const p = t > 0 ? simValor * (t * Math.pow(1 + t, simPrazo)) / (Math.pow(1 + t, simPrazo) - 1) : simValor / simPrazo;
+                    return (
+                      <div key={inst} className="flex items-center justify-between text-xs">
+                        <span className="text-slate-400">{inst}</span>
+                        <span className={`font-medium ${inst === simBanco ? "text-emerald-400" : "text-slate-300"}`}>{formatCurrency(p)}/mês</span>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
             </div>
           </div>
         </CardContent>
       </Card>
-      </UpgradeOverlay>
 
-      {/* ═══ SEÇÃO 4: Cartões de Crédito ═══ */}
-      <Card className="border-slate-800 bg-slate-900">
-        <CardHeader><CardTitle className="flex items-center gap-2 text-white"><CreditCard className="h-5 w-5" />Limites por Banco</CardTitle></CardHeader>
-        <CardContent>
-          {data?.cardsByBank && data.cardsByBank.length > 0 ? (
-            <div className="space-y-3">
-              {data.cardsByBank.map((card) => {
-                const pct = card.limit > 0 ? Math.round((card.used / card.limit) * 100) : 0;
-                return (
-                  <div key={card.name} className="rounded-lg border border-slate-800 p-4">
-                    <div className="flex items-center gap-3">
-                      <BankAvatar bankName={card.institution} size={32} />
-                      <div className="min-w-0 flex-1">
-                        <p className="truncate text-sm font-medium text-white">{card.institution}</p>
-                        <p className="text-xs text-slate-500">{card.name}</p>
-                      </div>
-                      <span className={`rounded-full px-2 py-0.5 text-xs font-medium ${
-                        pct > 80 ? "bg-red-500/10 text-red-400" : pct > 50 ? "bg-yellow-500/10 text-yellow-400" : "bg-emerald-500/10 text-emerald-400"
-                      }`}>{pct}%</span>
+      {/* LIMITES POR BANCO */}
+      {cards.length > 0 && (
+        <Card className="border-slate-800 bg-slate-900">
+          <CardHeader><CardTitle className="flex items-center gap-2 text-white"><CreditCard className="h-5 w-5" />Limites por Banco</CardTitle></CardHeader>
+          <CardContent className="space-y-3">
+            {cards.map((card, i) => {
+              const pct = card.limit > 0 ? Math.round((card.used / card.limit) * 100) : 0;
+              return (
+                <div key={i} className="rounded-lg border border-slate-800 p-4">
+                  <div className="flex items-center gap-3">
+                    <BankAvatar bankName={card.institution} size={32} />
+                    <div className="min-w-0 flex-1">
+                      <p className="truncate text-sm font-medium text-white">{card.institution}</p>
+                      <p className="text-xs text-slate-500">{card.name}</p>
                     </div>
-                    <Progress value={pct} className={`mt-3 h-1.5 ${
-                      pct > 80 ? "[&>div]:bg-red-500" : pct > 50 ? "[&>div]:bg-yellow-500" : "[&>div]:bg-emerald-500"
-                    }`} />
-                    <div className="mt-2 flex justify-between text-xs text-slate-500">
-                      <span>Usado: <span className="text-red-400">{formatCurrency(card.used)}</span></span>
-                      <span>Limite: {formatCurrency(card.limit)}</span>
-                      <span>Disponível: <span className="text-emerald-400">{formatCurrency(card.available)}</span></span>
-                    </div>
+                    <span className={`rounded-full px-2 py-0.5 text-xs font-medium ${pct > 80 ? "bg-red-500/10 text-red-400" : pct > 50 ? "bg-yellow-500/10 text-yellow-400" : "bg-emerald-500/10 text-emerald-400"}`}>{pct}%</span>
                   </div>
-                );
-              })}
-            </div>
-          ) : <p className="py-8 text-center text-sm text-slate-500">Nenhum cartão com limite encontrado</p>}
-        </CardContent>
-      </Card>
+                  <Progress value={pct} className={`mt-3 h-1.5 ${pct > 80 ? "[&>div]:bg-red-500" : pct > 50 ? "[&>div]:bg-yellow-500" : "[&>div]:bg-emerald-500"}`} />
+                  <div className="mt-2 flex justify-between text-xs text-slate-500">
+                    <span>Usado: <span className="text-red-400">{formatCurrency(card.used)}</span></span>
+                    <span>Limite: {formatCurrency(card.limit)}</span>
+                    <span>Disponível: <span className="text-emerald-400">{formatCurrency(card.available)}</span></span>
+                  </div>
+                </div>
+              );
+            })}
+          </CardContent>
+        </Card>
+      )}
 
-      {/* ═══ SEÇÃO 5: Consultas CPF ═══ */}
-      <Card className="border-slate-800 bg-slate-900">
-        <CardHeader><CardTitle className="flex items-center gap-2 text-white"><Search className="h-5 w-5" />Consultas ao CPF</CardTitle></CardHeader>
-        <CardContent>
-          {(data?.recentCpfCount ?? 0) >= 3 && (
-            <div className="mb-4 flex items-center gap-2 rounded-lg border border-red-800 bg-red-950/20 p-3">
-              <AlertTriangle className="h-4 w-4 text-red-400" />
-              <p className="text-xs text-red-300">{data?.recentCpfCount} consultas nos últimos 30 dias — pode impactar seu score.</p>
-            </div>
-          )}
-          <div className="mb-4 flex flex-wrap gap-2">
-            <input value={cpfInst} onChange={(e) => setCpfInst(e.target.value)} placeholder="Instituição"
-              className="flex-1 rounded-md border border-slate-700 bg-slate-800 px-3 py-2 text-sm text-white placeholder:text-slate-500 focus:border-emerald-500 focus:outline-none" />
-            <select value={cpfType} onChange={(e) => setCpfType(e.target.value)}
-              className="rounded-md border border-slate-700 bg-slate-800 px-3 py-2 text-sm text-white focus:border-emerald-500 focus:outline-none">
-              <option>Consulta de crédito</option><option>Empréstimo</option><option>Cartão de crédito</option><option>Financiamento</option><option>Outro</option>
-            </select>
-            <input type="date" value={cpfDate} onChange={(e) => setCpfDate(e.target.value)}
-              className="rounded-md border border-slate-700 bg-slate-800 px-3 py-2 text-sm text-white focus:border-emerald-500 focus:outline-none" />
-            <Button onClick={handleSaveCpf} disabled={savingCpf} size="sm" className="gap-1 bg-emerald-500 text-slate-950 hover:bg-emerald-400">
-              <Plus className="h-4 w-4" />Registrar
+      {/* ANÁLISE IA */}
+      <Card className="border-l-4 border-l-emerald-500 border-slate-800 bg-slate-900">
+        <CardHeader>
+          <div className="flex items-center justify-between">
+            <CardTitle className="flex items-center gap-2 text-white"><Sparkles className="h-5 w-5 text-emerald-400" />Análise da IA</CardTitle>
+            <Button onClick={gerarAnaliseIA} disabled={loadingIA} size="sm" variant="outline" className="gap-1 border-slate-700 text-xs text-slate-300">
+              {loadingIA ? <RefreshCw className="h-3 w-3 animate-spin" /> : <Sparkles className="h-3 w-3" />}
+              {loadingIA ? "Analisando..." : "Atualizar"}
             </Button>
           </div>
-          {data?.cpfConsultations && data.cpfConsultations.length > 0 ? (
-            <div className="space-y-2">
-              {data.cpfConsultations.map((c) => (
-                <div key={c.id} className="flex items-center justify-between rounded-lg border border-slate-800 px-4 py-2">
-                  <div className="flex items-center gap-3">
-                    <ArrowUpRight className="h-4 w-4 text-yellow-400" />
-                    <div>
-                      <p className="text-sm text-white">{c.institution}</p>
-                      <p className="text-xs text-slate-500">{c.type}</p>
-                    </div>
-                  </div>
-                  <p className="text-xs text-slate-400">{c.consulted_at}</p>
-                </div>
-              ))}
+        </CardHeader>
+        <CardContent>
+          {analiseIA ? (
+            <div className="space-y-3 text-sm leading-relaxed text-slate-300">
+              {analiseIA.split(/\n\n|\n/).filter(Boolean).map((p, i) => <p key={i}>{p}</p>)}
             </div>
-          ) : <p className="py-4 text-center text-sm text-slate-500">Nenhuma consulta registrada</p>}
+          ) : (
+            <p className="text-sm text-slate-500">Clique em &quot;Atualizar&quot; para gerar uma análise personalizada sobre seu crédito.</p>
+          )}
         </CardContent>
       </Card>
     </div>
   );
 }
 
-// --- Subcomponents ---
+// --- Sub-components ---
 
-function ScoreGauge({ score }: { score: number }) {
-  const pct = (score / 1000) * 100;
-  const color = score >= 700 ? "#10b981" : score >= 500 ? "#eab308" : score >= 300 ? "#f97316" : "#ef4444";
-  const label = score >= 700 ? "Excelente" : score >= 500 ? "Bom" : score >= 300 ? "Regular" : "Baixo";
-  const dash = `${(pct / 100) * (2 * Math.PI * 60 * 0.75)} ${2 * Math.PI * 60}`;
+function ScoreGauge({ score, color, label }: { score: number; color: string; label: string }) {
+  const hex = COLOR_MAP[color] || "#ef4444";
+  const gaugeData = [{ name: "score", value: (score / 1000) * 100, fill: hex }];
   return (
     <div className="flex flex-col items-center">
-      <svg width="180" height="140" viewBox="0 0 180 150">
-        <path d="M 25 130 A 65 65 0 1 1 155 130" fill="none" stroke="#1e293b" strokeWidth="14" strokeLinecap="round" />
-        <path d="M 25 130 A 65 65 0 1 1 155 130" fill="none" stroke={color} strokeWidth="14" strokeLinecap="round" strokeDasharray={dash} className="transition-all duration-1000" />
-        <text x="90" y="95" textAnchor="middle" className="fill-white font-bold" fontSize="36">{score}</text>
-        <text x="90" y="120" textAnchor="middle" className="fill-slate-400" fontSize="13">{label}</text>
-      </svg>
-      <p className="text-sm text-slate-500">de 1000 pontos</p>
+      <ResponsiveContainer width={180} height={180}>
+        <RadialBarChart cx="50%" cy="50%" innerRadius="70%" outerRadius="100%" startAngle={180} endAngle={0} data={gaugeData} barSize={14}>
+          <RadialBar dataKey="value" cornerRadius={10} background={{ fill: "#1e293b" }} />
+        </RadialBarChart>
+      </ResponsiveContainer>
+      <div className="-mt-16 text-center">
+        <span className="text-4xl font-bold text-white">{score}</span>
+        <span className="text-sm text-slate-400">/1000</span>
+        <p className="text-xs font-medium" style={{ color: hex }}>{label}</p>
+      </div>
     </div>
   );
 }
 
-function ScoreBar({ label, score, detail }: { label: string; score: number; detail: string }) {
-  const pct = (score / 200) * 100;
+function ScoreBar({ name, value, max }: { name: string; value: number; max: number }) {
+  const pct = Math.round((value / max) * 100);
   const color = pct >= 75 ? "bg-emerald-500" : pct >= 50 ? "bg-yellow-500" : pct >= 25 ? "bg-orange-500" : "bg-red-500";
   return (
     <div>
-      <div className="flex items-center justify-between text-xs">
-        <span className="text-slate-400">{label}</span>
-        <span className="text-slate-500">{score}/200 — {detail}</span>
-      </div>
-      <div className="mt-1 h-1.5 w-full overflow-hidden rounded-full bg-slate-800">
-        <div className={`h-full rounded-full ${color} transition-all`} style={{ width: `${pct}%` }} />
-      </div>
+      <div className="flex items-center justify-between text-xs"><span className="text-slate-400">{name}</span><span className="text-slate-500">{value}/{max}</span></div>
+      <div className="mt-1 h-2 w-full overflow-hidden rounded-full bg-slate-800"><div className={`h-full rounded-full ${color}`} style={{ width: `${pct}%` }} /></div>
     </div>
   );
 }
 
-function ScoreLegend() {
+function MetricCard({ label, value, color = "text-white", sub }: { label: string; value: string; color?: string; sub?: string }) {
   return (
-    <div className="mt-3 flex flex-wrap gap-3">
-      {[{ l: "0-300", c: "bg-red-500", t: "Baixo" }, { l: "300-500", c: "bg-orange-500", t: "Regular" }, { l: "500-700", c: "bg-yellow-500", t: "Bom" }, { l: "700-1000", c: "bg-emerald-500", t: "Excelente" }].map((r) => (
-        <div key={r.l} className="flex items-center gap-1.5"><div className={`h-2.5 w-2.5 rounded-full ${r.c}`} /><span className="text-xs text-slate-500">{r.l} ({r.t})</span></div>
-      ))}
-    </div>
+    <Card className="border-slate-800 bg-slate-900">
+      <CardContent className="p-4">
+        <p className="text-xs text-slate-500">{label}</p>
+        <p className={`mt-1 text-xl font-bold ${color}`}>{value}</p>
+        {sub && <p className="text-[10px] text-slate-600">{sub}</p>}
+      </CardContent>
+    </Card>
   );
 }
 
@@ -340,11 +296,10 @@ function CreditoSkeleton() {
   return (
     <div className="space-y-6">
       <div><Skeleton className="h-8 w-48" /><Skeleton className="mt-2 h-4 w-64" /></div>
-      <Skeleton className="h-72 rounded-lg" />
-      <Skeleton className="h-48 rounded-lg" />
+      <Skeleton className="h-64 rounded-lg" />
+      <div className="grid gap-4 sm:grid-cols-3">{Array.from({ length: 3 }).map((_, i) => <Skeleton key={i} className="h-24 rounded-lg" />)}</div>
       <Skeleton className="h-64 rounded-lg" />
       <Skeleton className="h-48 rounded-lg" />
-      <Skeleton className="h-40 rounded-lg" />
     </div>
   );
 }

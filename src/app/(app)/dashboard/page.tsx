@@ -69,7 +69,12 @@ export default function DashboardPage() {
   const [data, setData] = useState<DashboardData | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [creditScore, setCreditScore] = useState<{ score: number; label: string; color: string } | null>(null);
   const { startStr, endStr, label: periodLabel } = useDateRange();
+
+  useEffect(() => {
+    apiFetch("/api/credit/score").then((r) => r.json()).then((d) => { if (d.score) setCreditScore(d); }).catch(() => {});
+  }, []);
 
   useEffect(() => {
     setLoading(true);
@@ -182,6 +187,23 @@ export default function DashboardPage() {
           </>
         )}
       </div>
+
+      {/* Score de crédito */}
+      {creditScore && !loading && (
+        <Link href="/credito">
+          <Card className="cursor-pointer border-slate-800 bg-slate-900 transition-colors hover:border-slate-700">
+            <CardContent className="flex items-center gap-4 p-4">
+              <div className="flex h-12 w-12 items-center justify-center rounded-xl" style={{ backgroundColor: creditScore.color === "green" ? "#10b98120" : creditScore.color === "yellow" ? "#eab30820" : creditScore.color === "orange" ? "#f9731620" : "#ef444420" }}>
+                <span className="text-lg font-bold" style={{ color: creditScore.color === "green" ? "#10b981" : creditScore.color === "yellow" ? "#eab308" : creditScore.color === "orange" ? "#f97316" : "#ef4444" }}>{creditScore.score}</span>
+              </div>
+              <div>
+                <p className="text-sm font-medium text-white">Score Prycci</p>
+                <p className="text-xs text-slate-500">{creditScore.label} — clique para detalhes</p>
+              </div>
+            </CardContent>
+          </Card>
+        </Link>
+      )}
 
       {/* Movimentações do período */}
       {!loading && !data?.needsSync && (
