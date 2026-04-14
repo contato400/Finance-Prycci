@@ -9,7 +9,7 @@ import { BankAvatar } from "@/components/bank-avatar";
 import { formatCurrency } from "@/lib/utils";
 import { apiFetch } from "@/lib/api-client";
 import { ResponsiveContainer, RadialBarChart, RadialBar } from "recharts";
-import { ShieldCheck, Calculator, CreditCard, Sparkles, RefreshCw } from "lucide-react";
+import { ShieldCheck, Calculator, CreditCard, Sparkles, RefreshCw, Info } from "lucide-react";
 
 interface ScoreData {
   score: number; label: string; color: string;
@@ -27,16 +27,22 @@ const BANK_RATES: Record<string, number> = {
 
 const COLOR_MAP: Record<string, string> = { green: "#10b981", yellow: "#eab308", orange: "#f97316", red: "#ef4444" };
 
+const SCORE_TOOLTIPS: Record<string, string> = {
+  "Renda Mensal": "Pontuação baseada no volume da sua receita mensal",
+  "Comprometimento": "Relação entre seus gastos e sua renda. Ideal: gastar menos de 50% da receita",
+  "Uso do Crédito": "Percentual do limite de crédito utilizado. Ideal: usar menos de 30% do limite",
+  "Regularidade": "Consistência da sua renda nos últimos 3 meses",
+  "Diversificação": "Quantidade de bancos conectados e volume investido",
+};
+
 export default function CreditoPage() {
   const [scoreData, setScoreData] = useState<ScoreData | null>(null);
   const [cards, setCards] = useState<CardByBank[]>([]);
   const [loading, setLoading] = useState(true);
-  // Simulador
   const [simValor, setSimValor] = useState(10000);
   const [simPrazo, setSimPrazo] = useState(24);
   const [simBanco, setSimBanco] = useState("");
   const [simTaxa, setSimTaxa] = useState(1.99);
-  // IA
   const [analiseIA, setAnaliseIA] = useState("");
   const [loadingIA, setLoadingIA] = useState(false);
 
@@ -50,18 +56,14 @@ export default function CreditoPage() {
         setCards(cartoes.cards.map((c: { name: string; accounts?: { pluggy_items?: { institution_name: string } }; credit_limit: number; balance: number; available_limit: number }) => ({
           name: c.name,
           institution: c.accounts?.pluggy_items?.institution_name || "Desconhecido",
-          limit: c.credit_limit,
-          used: c.balance,
-          available: c.available_limit,
+          limit: c.credit_limit, used: c.balance, available: c.available_limit,
         })));
-        // Setar banco padrão no simulador
         const firstBank = cartoes.cards[0]?.accounts?.pluggy_items?.institution_name;
         if (firstBank) { setSimBanco(firstBank); setSimTaxa(BANK_RATES[firstBank] || 1.99); }
       }
     }).finally(() => setLoading(false));
   }, []);
 
-  // Simulador Price
   const taxaMensal = simTaxa / 100;
   const parcela = taxaMensal > 0
     ? simValor * (taxaMensal * Math.pow(1 + taxaMensal, simPrazo)) / (Math.pow(1 + taxaMensal, simPrazo) - 1)
@@ -80,7 +82,6 @@ export default function CreditoPage() {
     finally { setLoadingIA(false); }
   }
 
-  // Auto-gerar análise da IA ao carregar
   useEffect(() => {
     if (!loading && scoreData && !analiseIA) gerarAnaliseIA();
   }, [loading, scoreData]); // eslint-disable-line react-hooks/exhaustive-deps
@@ -99,41 +100,51 @@ export default function CreditoPage() {
 
       {/* SCORE */}
       <Card className="border-slate-800 bg-slate-900">
-        <CardHeader><CardTitle className="flex items-center gap-2 text-white"><ShieldCheck className="h-5 w-5 text-emerald-400" />Score Prycci</CardTitle></CardHeader>
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2 text-white"><ShieldCheck className="h-5 w-5 text-emerald-400" />Score Prycci</CardTitle>
+          <p className="text-xs text-slate-500">Calculado com base no seu comportamento financeiro real nos bancos conectados. Atualizado automaticamente a cada sincronização.</p>
+        </CardHeader>
         <CardContent>
           <div className="flex flex-col gap-6 md:flex-row md:items-start">
             <ScoreGauge score={s?.score ?? 0} color={s?.color ?? "red"} label={s?.label ?? ""} />
             <div className="flex-1 space-y-3">
-              <ScoreBar name="Renda Mensal" value={b?.renda ?? 0} max={200} />
-              <ScoreBar name="Comprometimento" value={b?.comprometimento ?? 0} max={200} />
-              <ScoreBar name="Uso do Crédito" value={b?.credito ?? 0} max={200} />
-              <ScoreBar name="Regularidade" value={b?.regularidade ?? 0} max={200} />
-              <ScoreBar name="Diversificação" value={b?.diversificacao ?? 0} max={200} />
+              <ScoreBar name="Renda Mensal" value={b?.renda ?? 0} max={200} tooltip={SCORE_TOOLTIPS["Renda Mensal"]} />
+              <ScoreBar name="Comprometimento" value={b?.comprometimento ?? 0} max={200} tooltip={SCORE_TOOLTIPS["Comprometimento"]} />
+              <ScoreBar name="Uso do Crédito" value={b?.credito ?? 0} max={200} tooltip={SCORE_TOOLTIPS["Uso do Crédito"]} />
+              <ScoreBar name="Regularidade" value={b?.regularidade ?? 0} max={200} tooltip={SCORE_TOOLTIPS["Regularidade"]} />
+              <ScoreBar name="Diversificação" value={b?.diversificacao ?? 0} max={200} tooltip={SCORE_TOOLTIPS["Diversificação"]} />
             </div>
           </div>
         </CardContent>
       </Card>
 
       {/* CAPACIDADE */}
-      <div className="grid gap-4 sm:grid-cols-3">
-        <MetricCard label="Renda Média" value={formatCurrency(c?.rendaMedia ?? 0)} color="text-emerald-400" />
-        <MetricCard label="Disponível Mensal" value={formatCurrency(c?.disponivelMensal ?? 0)} color="text-white" />
-        <MetricCard label="Parcela Máx. Sugerida" value={formatCurrency(c?.parcelaMaxSugerida ?? 0)} sub="30% do disponível" color="text-emerald-400" />
-      </div>
       <Card className="border-slate-800 bg-slate-900">
-        <CardContent className="p-0">
-          <table className="w-full text-sm">
-            <thead><tr className="border-b border-slate-800 text-left text-xs text-slate-500"><th className="p-3">Prazo</th><th className="p-3 text-right">Crédito Máximo</th><th className="p-3 text-right">Parcela</th></tr></thead>
-            <tbody>
-              {[{ p: 12, v: c?.credito12x }, { p: 24, v: c?.credito24x }, { p: 36, v: c?.credito36x }].map(({ p, v }) => (
-                <tr key={p} className={`border-b border-slate-800/50 ${p === 24 ? "bg-emerald-500/5" : ""}`}>
-                  <td className="p-3 text-white">{p}x {p === 24 && <span className="ml-1 rounded bg-emerald-500/20 px-1.5 py-0.5 text-[10px] text-emerald-400">recomendado</span>}</td>
-                  <td className="p-3 text-right font-medium text-white">{formatCurrency(v ?? 0)}</td>
-                  <td className="p-3 text-right text-slate-400">{formatCurrency(c?.parcelaMaxSugerida ?? 0)}/mês</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
+        <CardHeader>
+          <CardTitle className="text-white">Capacidade de Empréstimo</CardTitle>
+          <p className="text-xs text-slate-500">Estimativa baseada na sua renda e gastos reais. Não garante aprovação — serve como orientação financeira.</p>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          <div className="grid gap-4 sm:grid-cols-3">
+            <MetricCard label="Renda Média" value={formatCurrency(c?.rendaMedia ?? 0)} color="text-emerald-400" tooltip="Média da sua receita mensal com base nos últimos meses" />
+            <MetricCard label="Disponível Mensal" value={formatCurrency(c?.disponivelMensal ?? 0)} color="text-white" tooltip="O que sobra após descontar seus gastos médios da renda média" />
+            <MetricCard label="Parcela Máx. Sugerida" value={formatCurrency(c?.parcelaMaxSugerida ?? 0)} sub="30% do disponível" color="text-emerald-400" tooltip="30% do seu disponível mensal — limite saudável para uma nova parcela sem comprometer seu fluxo de caixa" />
+          </div>
+          <p className="text-xs text-slate-500">Valor máximo que você poderia financiar pagando a parcela sugerida em cada prazo:</p>
+          <div className="overflow-hidden rounded-lg border border-slate-800">
+            <table className="w-full text-sm">
+              <thead><tr className="border-b border-slate-800 text-left text-xs text-slate-500"><th className="p-3">Prazo</th><th className="p-3 text-right">Crédito Máximo</th><th className="p-3 text-right">Parcela</th></tr></thead>
+              <tbody>
+                {[{ p: 12, v: c?.credito12x }, { p: 24, v: c?.credito24x }, { p: 36, v: c?.credito36x }].map(({ p, v }) => (
+                  <tr key={p} className={`border-b border-slate-800/50 ${p === 24 ? "bg-emerald-500/5" : ""}`}>
+                    <td className="p-3 text-white">{p}x {p === 24 && <span className="ml-1 rounded bg-emerald-500/20 px-1.5 py-0.5 text-[10px] text-emerald-400">recomendado</span>}</td>
+                    <td className="p-3 text-right font-medium text-white">{formatCurrency(v ?? 0)}</td>
+                    <td className="p-3 text-right text-slate-400">{formatCurrency(c?.parcelaMaxSugerida ?? 0)}/mês</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
         </CardContent>
       </Card>
 
@@ -177,7 +188,6 @@ export default function CreditoPage() {
                 <div className={`h-3 w-3 rounded-full ${parcelaPercRenda > 30 ? "bg-red-500" : parcelaPercRenda > 20 ? "bg-yellow-500" : "bg-emerald-500"}`} />
                 <span className="text-xs text-slate-300">{parcelaPercRenda}% da sua renda mensal</span>
               </div>
-              {/* Comparativo entre bancos */}
               {cards.length > 1 && (
                 <div className="space-y-1">
                   <p className="text-[10px] text-slate-500">Comparativo para {formatCurrency(simValor)} em {simPrazo}x:</p>
@@ -255,6 +265,17 @@ export default function CreditoPage() {
 
 // --- Sub-components ---
 
+function InfoTooltip({ text }: { text: string }) {
+  return (
+    <span className="group relative ml-1 inline-flex cursor-help">
+      <Info className="h-3.5 w-3.5 text-slate-600 group-hover:text-slate-400" />
+      <span className="pointer-events-none absolute bottom-full left-1/2 z-50 mb-2 w-56 -translate-x-1/2 rounded-lg border border-slate-700 bg-slate-800 px-3 py-2 text-xs leading-relaxed text-slate-200 opacity-0 shadow-lg transition-opacity group-hover:opacity-100">
+        {text}
+      </span>
+    </span>
+  );
+}
+
 function ScoreGauge({ score, color, label }: { score: number; color: string; label: string }) {
   const hex = COLOR_MAP[color] || "#ef4444";
   const gaugeData = [{ name: "score", value: (score / 1000) * 100, fill: hex }];
@@ -274,22 +295,25 @@ function ScoreGauge({ score, color, label }: { score: number; color: string; lab
   );
 }
 
-function ScoreBar({ name, value, max }: { name: string; value: number; max: number }) {
+function ScoreBar({ name, value, max, tooltip }: { name: string; value: number; max: number; tooltip?: string }) {
   const pct = Math.round((value / max) * 100);
   const color = pct >= 75 ? "bg-emerald-500" : pct >= 50 ? "bg-yellow-500" : pct >= 25 ? "bg-orange-500" : "bg-red-500";
   return (
     <div>
-      <div className="flex items-center justify-between text-xs"><span className="text-slate-400">{name}</span><span className="text-slate-500">{value}/{max}</span></div>
+      <div className="flex items-center justify-between text-xs">
+        <span className="flex items-center text-slate-400">{name}{tooltip && <InfoTooltip text={tooltip} />}</span>
+        <span className="text-slate-500">{value}/{max}</span>
+      </div>
       <div className="mt-1 h-1.5 w-full overflow-hidden rounded-full bg-slate-800"><div className={`h-full rounded-full ${color}`} style={{ width: `${pct}%` }} /></div>
     </div>
   );
 }
 
-function MetricCard({ label, value, color = "text-white", sub }: { label: string; value: string; color?: string; sub?: string }) {
+function MetricCard({ label, value, color = "text-white", sub, tooltip }: { label: string; value: string; color?: string; sub?: string; tooltip?: string }) {
   return (
     <Card className="border-slate-800 bg-slate-900">
       <CardContent className="p-4">
-        <p className="text-xs text-slate-500">{label}</p>
+        <p className="flex items-center text-xs text-slate-500">{label}{tooltip && <InfoTooltip text={tooltip} />}</p>
         <p className={`mt-1 text-xl font-bold ${color}`}>{value}</p>
         {sub && <p className="text-[10px] text-slate-600">{sub}</p>}
       </CardContent>
@@ -302,7 +326,7 @@ function CreditoSkeleton() {
     <div className="space-y-6">
       <div><Skeleton className="h-8 w-48" /><Skeleton className="mt-2 h-4 w-64" /></div>
       <Skeleton className="h-64 rounded-lg" />
-      <div className="grid gap-4 sm:grid-cols-3">{Array.from({ length: 3 }).map((_, i) => <Skeleton key={i} className="h-24 rounded-lg" />)}</div>
+      <Skeleton className="h-48 rounded-lg" />
       <Skeleton className="h-64 rounded-lg" />
       <Skeleton className="h-48 rounded-lg" />
     </div>
